@@ -52,7 +52,7 @@ pip install reportlab Pillow pyphen pypdf
 ```
 
 (`pyphen` and `pypdf` are optional: hyphenation and the booklet output.)
-Python 3.9 or newer. Or install BookPress itself from this folder, which
+Python 3.10 or newer. Or install BookPress itself from this folder, which
 gives you a `bookpress` command:
 
 ```

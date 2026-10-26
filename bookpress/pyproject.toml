@@ -7,7 +7,7 @@ name = "bookpress"
 version = "0.2.0"
 description = "Turn plain text and pictures into a PDF that looks like a real printed book"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "reportlab>=4.0",
     "Pillow>=10.0",
