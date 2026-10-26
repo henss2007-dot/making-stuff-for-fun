@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BookPress</title>
+<style>
+  :root {
+    --bg: #f3f0ea; --panel: #fffdf9; --ink: #1d1a16; --muted: #6b655c; --line: #d9d3c7;
+    --accent: #1f2a44; --accent-ink: #fff; --gold: #c9a96e; --ok: #2d7a46; --bad: #a23b2a;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--accent); color: var(--accent-ink); flex-wrap: wrap; }
+  header h1 { font: 600 17px Georgia, "Times New Roman", serif; margin: 0 8px 0 0; letter-spacing: .5px; }
+  header h1 span { color: var(--gold); }
+  header .name { opacity: .85; font-size: 13px; margin-right: auto; }
+  button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(0,0,0,.15); background: #fff; color: var(--ink); cursor: pointer; }
+  button:hover { background: #f1ede4; }
+  button.primary { background: var(--gold); border-color: #a9884f; color: #1d1a16; font-weight: 600; }
+  button.primary:hover { background: #d9b97e; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { font-size: 13px; opacity: .9; min-width: 160px; text-align: right; }
+  #status.bad { color: #ffb4a6; }
+  main { flex: 1; display: grid; grid-template-columns: minmax(360px, 1fr) 6px minmax(300px, 1fr); min-height: 0; }
+  main.wide { grid-template-columns: 1fr 6px 0px; }
+  .pane { display: flex; flex-direction: column; min-height: 0; }
+  #divider { background: var(--line); cursor: col-resize; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .toolbar button { padding: 4px 9px; font-size: 13px; }
+  .toolbar .sep { width: 1px; background: var(--line); margin: 0 4px; }
+  textarea { flex: 1; width: 100%; resize: none; border: 0; outline: 0; padding: 16px 20px; font: 14.5px/1.55 "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; background: var(--panel); color: var(--ink); tab-size: 4; }
+  textarea.dragover { outline: 3px dashed var(--gold); outline-offset: -6px; }
+  #preview { flex: 1; border: 0; background: #8a8378; }
+  #empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); text-align: center; padding: 30px; }
+  #empty b { display: block; font-size: 18px; margin-bottom: 8px; color: var(--ink); }
+  .previewbar { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 13px; color: var(--muted); }
+  .previewbar .grow { flex: 1; }
+  #warnings { background: #fff6e0; color: #6a4e00; border-bottom: 1px solid #e8d7a8; padding: 6px 10px; font-size: 13px; display: none; white-space: pre-wrap; }
+  #help { position: fixed; top: 52px; right: 12px; width: 520px; max-width: calc(100vw - 24px); max-height: calc(100vh - 70px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.2); padding: 16px 20px; display: none; z-index: 10; }
+  #help.open { display: block; }
+  #help h2 { margin: 0 0 6px; font-size: 16px; }
+  #help h3 { margin: 16px 0 4px; font-size: 14px; }
+  #help table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  #help td { padding: 3px 6px 3px 0; vertical-align: top; border-bottom: 1px solid #eee; }
+  #help code { background: #efebe3; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  #help .close { float: right; }
+  kbd { font: 11px monospace; background: #eee; color: #333; border: 1px solid #ccc; border-radius: 3px; padding: 0 4px; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; grid-template-rows: 1fr 6px 1fr; } #divider { cursor: row-resize; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Book<span>Press</span></h1>
+  <span class="name" id="projectName"></span>
+  <button id="btnHelp" title="Formatting cheat sheet">Help</button>
+  <button id="btnWide" title="Hide / show the preview">Preview</button>
+  <button id="btnSave" title="Save book.md (Ctrl+S)">Save</button>
+  <button id="btnBuild" class="primary" title="Build the PDF (Ctrl+Enter)">Build PDF</button>
+  <a id="btnDownload" href="/download.pdf" download><button title="Download the last built PDF">Download</button></a>
+  <span id="status"></span>
+</header>
+
+<main>
+  <section class="pane">
+    <div class="toolbar">
+      <button data-ins="\n# Chapter title\n\n" title="Start a new chapter">+ Chapter</button>
+      <button data-ins="\n@part Part title\n\n" title="Start a new part">+ Part</button>
+      <button data-ins="\n## Section title\n\n" title="A heading inside a chapter">+ Section</button>
+      <span class="sep"></span>
+      <button id="btnImage" title="Insert a picture from your computer">+ Image…</button>
+      <button data-ins="\n* * *\n\n" title="Scene break">* * *</button>
+      <button data-wrap="*" title="Italic">I</button>
+      <button data-wrap="**" title="Bold"><b>B</b></button>
+      <button data-line="> " title="Block quote">“ Quote</button>
+      <button data-line="| " title="Verse / poetry line">| Verse</button>
+      <button data-line="-> " title="Centered line">↔ Center</button>
+      <input type="file" id="fileInput" accept="image/*" multiple hidden>
+    </div>
+    <textarea id="editor" spellcheck="true" placeholder="Write your book here…"></textarea>
+  </section>
+  <div id="divider"></div>
+  <section class="pane">
+    <div class="previewbar"><span id="pdfInfo">No PDF yet</span><span class="grow"></span><span>Changes update after <b>Build PDF</b></span></div>
+    <div id="warnings"></div>
+    <div id="empty"><div><b>Your book will appear here</b>Press <kbd>Build PDF</kbd> (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>) to typeset it.</div></div>
+    <iframe id="preview" title="PDF preview" hidden></iframe>
+  </section>
+</main>
+
+<div id="help">
+  <button class="close" id="btnHelpClose">Close</button>
+  <h2>How to write your book</h2>
+  <p>The text box is your whole book. Everything between the two <code>---</code> lines at the top is settings; everything after is the book itself.</p>
+  <h3>Structure</h3>
+  <table>
+    <tr><td><code># The Storm</code></td><td>A chapter (numbered automatically: “Chapter One”, “Chapter Two”…). Writing <code># Chapter 3: The Storm</code> also works.</td></tr>
+    <tr><td><code>#* Prologue</code></td><td>A chapter without a number (prologue, epilogue, about the author…)</td></tr>
+    <tr><td><code>@part Part One</code></td><td>A part-divider page before a group of chapters</td></tr>
+    <tr><td><code>## A heading</code></td><td>A small heading inside a chapter</td></tr>
+    <tr><td><code>* * *</code></td><td>A scene break</td></tr>
+  </table>
+  <h3>Text</h3>
+  <table>
+    <tr><td>blank line</td><td>Separates paragraphs. Quotes and dashes become real “curly quotes” and — dashes automatically.</td></tr>
+    <tr><td><code>*italic*</code> <code>**bold**</code></td><td>Emphasis</td></tr>
+    <tr><td><code>&gt; text</code></td><td>A quoted / indented paragraph</td></tr>
+    <tr><td><code>| line</code></td><td>Poetry or song: each line stays on its own line (leading spaces are kept)</td></tr>
+    <tr><td><code>-&gt; text</code></td><td>A centered line</td></tr>
+    <tr><td>two spaces at end of line</td><td>Keeps a line break inside a paragraph</td></tr>
+  </table>
+  <h3>Pictures</h3>
+  <table>
+    <tr><td><code>![Caption](images/boat.jpg)</code></td><td>A picture with a caption, as wide as the text. Use the <b>+ Image…</b> button or drop a file on the editor.</td></tr>
+    <tr><td><code>![Caption](images/boat.jpg){width=50%}</code></td><td>Narrower picture (also <code>width=3in</code>, <code>width=8cm</code>)</td></tr>
+    <tr><td><code>![Caption](images/map.png){page}</code></td><td>Picture on its own page (a “plate”)</td></tr>
+  </table>
+  <h3>Settings (top of the file)</h3>
+  <table>
+    <tr><td><code>title</code>, <code>subtitle</code>, <code>author</code></td><td>Used on the cover, title page and running heads</td></tr>
+    <tr><td><code>year</code>, <code>publisher</code>, <code>publisher_city</code>, <code>isbn</code>, <code>edition</code>, <code>rights</code>, <code>fiction: true</code></td><td>Copyright page details</td></tr>
+    <tr><td><code>dedication</code>, <code>epigraph</code>, <code>epigraph_source</code></td><td>Extra front-matter pages (use <code>\n</code> for a line break)</td></tr>
+    <tr><td><code>cover_image: images/cover.jpg</code></td><td>Your own cover picture, filling the page. Add <code>cover_text: true</code> to print the title over it. Without a cover image you get a typographic cover (<code>cover_color</code>, <code>cover_accent</code>).</td></tr>
+    <tr><td><code>cover: false</code></td><td>No cover page at all (for print-on-demand interiors)</td></tr>
+    <tr><td><code>trim: 6x9</code></td><td>Page size: <code>5x8</code>, <code>5.5x8.5</code>, <code>6x9</code>, <code>7x10</code>, <code>a5</code>, <code>a4</code>, <code>letter</code>, <code>pocket</code>, or e.g. <code>14x21cm</code></td></tr>
+    <tr><td><code>font: Georgia</code></td><td>Any serif font installed on your computer (Palatino Linotype, Georgia, Garamond, Book Antiqua, Times New Roman, EB Garamond…), or a path to a .ttf file / folder of .ttf files</td></tr>
+    <tr><td><code>font_size: 11</code>, <code>leading: 15.4</code></td><td>Type size and line spacing in points</td></tr>
+    <tr><td><code>toc: false</code>, <code>drop_caps: false</code>, <code>blank_pages: false</code>, <code>the_end: true</code>, <code>chapter_label: Kapitel</code>, <code>scene_break: ~</code></td><td>Switch the table of contents, drop caps, blank left-hand pages (chapters always start on the right like a printed book), a THE END line, the chapter word, the scene-break ornament</td></tr>
+  </table>
+  <p>Lines starting with <code>//</code> are notes to yourself and are not printed.</p>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const editor = $('editor'), status = $('status'), preview = $('preview'), empty = $('empty');
+  let dirty = false, building = false;
+
+  function setStatus(text, bad) { status.textContent = text; status.className = bad ? 'bad' : ''; }
+  function markDirty() { if (!dirty) { dirty = true; setStatus('Unsaved changes'); } }
+
+  async function api(path, body) {
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return r.json();
+  }
+
+  async function load() {
+    const r = await fetch('/api/project');
+    const p = await r.json();
+    editor.value = p.source;
+    $('projectName').textContent = p.folder;
+    document.title = 'BookPress – ' + p.name;
+    if (p.has_pdf) showPdf();
+    setStatus('Loaded');
+  }
+
+  async function save(quiet) {
+    const r = await api('/api/save', { source: editor.value });
+    if (r.ok) { dirty = false; if (!quiet) setStatus('Saved'); }
+    else setStatus('Save failed: ' + r.error, true);
+    return r.ok;
+  }
+
+  function showPdf() {
+    empty.hidden = true;
+    preview.hidden = false;
+    preview.src = '/book.pdf?t=' + Date.now() + '#view=FitH';
+  }
+
+  async function build() {
+    if (building) return;
+    building = true;
+    $('btnBuild').disabled = true;
+    setStatus('Typesetting…');
+    try {
+      const r = await api('/api/build', { source: editor.value });
+      if (r.ok) {
+        dirty = false;
+        setStatus('Built in ' + r.seconds + 's');
+        $('pdfInfo').textContent = r.pages + ' pages · ' + r.font;
+        const w = $('warnings');
+        w.style.display = r.warnings.length ? 'block' : 'none';
+        w.textContent = r.warnings.join('\n');
+        showPdf();
+      } else {
+        setStatus('Build failed', true);
+        const w = $('warnings');
+        w.style.display = 'block';
+        w.textContent = 'Could not build the PDF: ' + r.error;
+      }
+    } catch (e) {
+      setStatus('Build failed: ' + e, true);
+    } finally {
+      building = false;
+      $('btnBuild').disabled = false;
+    }
+  }
+
+  // --- editing helpers ----------------------------------------------------
+  function insertAtCursor(text) {
+    const s = editor.selectionStart, e = editor.selectionEnd;
+    const before = editor.value.slice(0, s), after = editor.value.slice(e);
+    const needsNL = before.length && !before.endsWith('\n') && text.startsWith('\n');
+    editor.value = before + text + after;
+    const pos = s + text.length;
+    editor.setSelectionRange(pos, pos);
+    editor.focus();
+    markDirty();
+  }
+  function wrapSelection(mark) {
+    const s = editor.selectionStart, e = editor.selectionEnd;
+    const sel = editor.value.slice(s, e) || 'text';
+    editor.value = editor.value.slice(0, s) + mark + sel + mark + editor.value.slice(e);
+    editor.setSelectionRange(s + mark.length, s + mark.length + sel.length);
+    editor.focus();
+    markDirty();
+  }
+  function prefixLines(prefix) {
+    const s = editor.selectionStart, e = editor.selectionEnd;
+    const lineStart = editor.value.lastIndexOf('\n', s - 1) + 1;
+    let lineEnd = editor.value.indexOf('\n', e);
+    if (lineEnd < 0) lineEnd = editor.value.length;
+    const chunk = editor.value.slice(lineStart, lineEnd).split('\n').map(l => prefix + l).join('\n');
+    editor.value = editor.value.slice(0, lineStart) + chunk + editor.value.slice(lineEnd);
+    editor.setSelectionRange(lineStart, lineStart + chunk.length);
+    editor.focus();
+    markDirty();
+  }
+  document.querySelectorAll('[data-ins]').forEach(b => b.addEventListener('click', () => insertAtCursor(b.dataset.ins.replace(/\\n/g, '\n'))));
+  document.querySelectorAll('[data-wrap]').forEach(b => b.addEventListener('click', () => wrapSelection(b.dataset.wrap)));
+  document.querySelectorAll('[data-line]').forEach(b => b.addEventListener('click', () => prefixLines(b.dataset.line)));
+
+  // --- images ----------------------------------------------------------
+  function readFile(file) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(file);
+    });
+  }
+  async function addImages(files) {
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) { setStatus('Not an image: ' + file.name, true); continue; }
+      setStatus('Adding ' + file.name + '…');
+      const data = await readFile(file);
+      const r = await api('/api/upload', { name: file.name, data });
+      if (r.ok) {
+        const caption = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ');
+        insertAtCursor('\n![' + caption + '](' + r.path + ')\n\n');
+        setStatus('Added ' + r.name);
+      } else setStatus(r.error, true);
+    }
+  }
+  $('btnImage').addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', (e) => { addImages([...e.target.files]); e.target.value = ''; });
+  editor.addEventListener('dragover', (e) => { e.preventDefault(); editor.classList.add('dragover'); });
+  editor.addEventListener('dragleave', () => editor.classList.remove('dragover'));
+  editor.addEventListener('drop', (e) => {
+    e.preventDefault(); editor.classList.remove('dragover');
+    if (e.dataTransfer.files.length) addImages([...e.dataTransfer.files]);
+  });
+  editor.addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData.items || [])].filter(i => i.kind === 'file').map(i => i.getAsFile());
+    if (files.length) { e.preventDefault(); addImages(files); }
+  });
+
+  // --- buttons & keys -----------------------------------------------------
+  $('btnSave').addEventListener('click', () => save());
+  $('btnBuild').addEventListener('click', build);
+  $('btnHelp').addEventListener('click', () => $('help').classList.toggle('open'));
+  $('btnHelpClose').addEventListener('click', () => $('help').classList.remove('open'));
+  $('btnWide').addEventListener('click', () => document.querySelector('main').classList.toggle('wide'));
+  editor.addEventListener('input', markDirty);
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); build(); }
+    if (e.key === 'Escape') $('help').classList.remove('open');
+  });
+  editor.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') { e.preventDefault(); insertAtCursor('    '); }
+  });
+  window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+  setInterval(() => { if (dirty && !building) save(true); }, 30000);  // autosave
+
+  // --- resizable split ---------------------------------------------------
+  const divider = $('divider'), main = document.querySelector('main');
+  divider.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const move = (ev) => {
+      const rect = main.getBoundingClientRect();
+      const left = Math.min(Math.max(ev.clientX - rect.left, 300), rect.width - 300);
+      main.style.gridTemplateColumns = left + 'px 6px 1fr';
+    };
+    const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

@@ -1,3 +1,14 @@
+# making-stuff-for-fun
+
+Small projects, each in its own folder:
+
+| Folder | What it is |
+|---|---|
+| [`wordmine/`](#wordmine) | Mine vocabulary from games, manga and books on your screen into Anki (below) |
+| [`bookpress/`](bookpress/) | Write or paste text, add pictures, get a PDF that looks like a real printed book |
+
+---
+
 # WordMine
 
 Mine vocabulary from **games, manga and books on your screen** straight into **Anki**.
