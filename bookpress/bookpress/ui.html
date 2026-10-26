@@ -16,7 +16,8 @@
   header { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: var(--accent); color: var(--accent-ink); flex-wrap: wrap; }
   header h1 { font: 600 17px Georgia, "Times New Roman", serif; margin: 0 8px 0 0; letter-spacing: .5px; }
   header h1 span { color: var(--gold); }
-  header .name { opacity: .8; font-size: 12px; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40vw; }
+  header .name { opacity: .8; font-size: 12px; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 30vw; }
+  header select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(0,0,0,.15); max-width: 220px; }
   button, .btn { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(0,0,0,.15); background: #fff; color: var(--ink); cursor: pointer; text-decoration: none; display: inline-block; }
   button:hover, .btn:hover { background: #f1ede4; }
   button.primary { background: var(--gold); border-color: #a9884f; color: #1d1a16; font-weight: 600; }
@@ -88,6 +89,8 @@
 <header>
   <h1>Book<span>Press</span></h1>
   <span class="name" id="projectName"></span>
+  <select id="bookSelect" title="Switch book" hidden></select>
+  <button id="btnNewBook" title="Start another book" hidden>+ New book</button>
   <button id="btnHelp" title="Formatting cheat sheet">Help</button>
   <button id="btnSettings" title="Change the look of the book">Settings</button>
   <button id="btnWide" title="Hide / show the preview">Preview</button>
@@ -189,16 +192,43 @@
     return r.json();
   }
 
-  async function load() {
-    const r = await fetch('/api/project');
-    const p = await r.json();
+  function applyProject(p) {
     editor.value = p.source;
+    dirty = false;
     $('projectName').textContent = p.folder;
     document.title = 'BookPress – ' + p.name;
     showExtras(p.extras || []);
-    if (p.has_pdf) showPdf();
+    const sel = $('bookSelect');
+    if (p.library) {
+      sel.hidden = false; $('btnNewBook').hidden = false;
+      sel.innerHTML = '';
+      for (const b of p.books) { const o = document.createElement('option'); o.value = b; o.textContent = b; sel.appendChild(o); }
+      sel.value = p.name;
+    }
+    $('pdfInfo').textContent = p.has_pdf ? 'Last built PDF' : 'No PDF yet';
+    $('warnings').style.display = 'none';
+    if (p.has_pdf) showPdf(); else { preview.hidden = true; empty.hidden = false; }
+    scheduleSync();
+  }
+  async function load() {
+    const r = await fetch('/api/project');
+    applyProject(await r.json());
     setStatus('Loaded');
   }
+  async function switchBook(name) {
+    if (dirty && !(await save(true))) return;
+    const r = await api('/api/open', { name });
+    if (r.ok) { applyProject(r); setStatus('Opened ' + r.name); } else setStatus(r.error, true);
+  }
+  async function newBook() {
+    const name = prompt('Name of the new book:', 'My Next Book');
+    if (!name) return;
+    if (dirty) await save(true);
+    const r = await api('/api/new', { name });
+    if (r.ok) { applyProject(r); setStatus('Created ' + r.name); } else setStatus(r.error, true);
+  }
+  $('bookSelect').addEventListener('change', (e) => switchBook(e.target.value));
+  $('btnNewBook').addEventListener('click', newBook);
 
   async function save(quiet) {
     const r = await api('/api/save', { source: editor.value });

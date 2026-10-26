@@ -1,0 +1,109 @@
+name: Release BookPress
+
+# Builds a double-click BookPress app for Windows, macOS and Linux and attaches
+# the files to a GitHub Release. Runs when a tag like v0.2.0 is pushed, or by
+# hand from the Actions tab.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.optional }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: windows
+            exe: dist/BookPress.exe
+            asset: BookPress-windows.exe
+            optional: false
+          - os: macos-latest
+            label: macos-apple-silicon
+            exe: dist/BookPress
+            asset: BookPress-macos-apple-silicon.zip
+            optional: false
+          - os: macos-15-intel
+            label: macos-intel
+            exe: dist/BookPress
+            asset: BookPress-macos-intel.zip
+            optional: true
+          - os: ubuntu-22.04
+            label: linux
+            exe: dist/BookPress
+            asset: BookPress-linux.tar.gz
+            optional: false
+    defaults:
+      run:
+        working-directory: bookpress
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: python -m pip install -r requirements.txt pyinstaller pytest pypdf
+      - name: Test
+        run: python -m pytest tests -q
+      - name: Package
+        run: pyinstaller --clean -y bookpress.spec
+      - name: Smoke test the packaged app
+        run: |
+          ./${{ matrix.exe }} --version
+          ./${{ matrix.exe }} build example -o smoke.pdf
+          ./${{ matrix.exe }} build example/showcase.md -o smoke2.pdf
+      - name: Name the download
+        run: |
+          mkdir -p upload
+          case "${{ matrix.asset }}" in
+            *.exe)    cp "${{ matrix.exe }}" "upload/${{ matrix.asset }}" ;;
+            *.zip)    (cd dist && zip -9 "../upload/${{ matrix.asset }}" BookPress) ;;
+            *.tar.gz) tar -C dist -czf "upload/${{ matrix.asset }}" BookPress ;;
+          esac
+          ls -la upload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: bookpress/upload/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    if: ${{ always() && !cancelled() && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: files
+          merge-multiple: true
+      - run: ls -la files
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: files/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            ## BookPress ${{ github.ref_name }} — download
+
+            Pick the file for your computer, no install needed:
+
+            | Computer | File | How to start |
+            |---|---|---|
+            | Windows | `BookPress-windows.exe` | Double-click. If Windows shows "protected your PC", click **More info → Run anyway** (the app is not signed with a paid certificate). |
+            | Mac with Apple chip (M1–M4) | `BookPress-macos-apple-silicon.zip` | Unzip, then **right-click → Open** the `BookPress` file the first time (plain double-clicking is blocked for unsigned apps). |
+            | Mac with Intel chip | `BookPress-macos-intel.zip` | Same as above. |
+            | Linux | `BookPress-linux.tar.gz` | `tar xzf BookPress-linux.tar.gz && ./BookPress` |
+
+            A terminal window opens, then your browser opens the editor. Your books live in **Documents/BookPress**, one folder per book, as plain text files plus your pictures and the PDFs.
+
+            Prefer Python? `pip install reportlab Pillow pyphen pypdf`, download the source below and run `python -m bookpress serve`.

@@ -28,17 +28,32 @@ and get a PDF with everything a proper book has:
 
 ![Pages from the sample book](docs/sample-pages.png)
 
-## Install
+## Download (no install)
+
+Go to the **[Releases page](https://github.com/henss2007-dot/making-stuff-for-fun/releases)**
+and pick the file for your computer:
+
+| Computer | File | How to start |
+|---|---|---|
+| Windows | `BookPress-windows.exe` | Double-click. If Windows says it "protected your PC", click **More info → Run anyway** (the app is free software and not signed with a paid certificate). |
+| Mac with Apple chip (M1–M4) | `BookPress-macos-apple-silicon.zip` | Unzip, then **right-click → Open** the `BookPress` file the first time. |
+| Mac with Intel chip | `BookPress-macos-intel.zip` | Same as above. |
+| Linux | `BookPress-linux.tar.gz` | `tar xzf BookPress-linux.tar.gz && ./BookPress` |
+
+A small terminal window opens (keep it open while you write), then your
+browser opens the editor. Your books live in **Documents/BookPress**, one
+folder per book: a plain text file, your pictures, and the finished PDFs.
+Use the book menu in the editor's top bar to switch books or start a new one.
+
+## Install with Python instead
 
 ```
 pip install reportlab Pillow pyphen pypdf
 ```
 
 (`pyphen` and `pypdf` are optional: hyphenation and the booklet output.)
-Python 3.9 or newer.
-
-Or install BookPress itself from this folder, which gives you a `bookpress`
-command:
+Python 3.9 or newer. Or install BookPress itself from this folder, which
+gives you a `bookpress` command:
 
 ```
 pip install .
@@ -46,14 +61,16 @@ pip install .
 
 ## Use it
 
-The easiest way is the built-in editor, which runs in your browser:
+The editor runs in your browser:
 
 ```
 python -m bookpress serve mybook
 ```
 
 This creates a folder `mybook` with a sample `book.md` (a short story that
-shows every feature) and an `images` folder, then opens the editor:
+shows every feature) and an `images` folder, then opens the editor. Point it
+at a folder that holds several book folders and it becomes a library with a
+book switcher (`python -m bookpress serve ~/Documents/BookPress`).
 
 - **left**: your book as text, with buttons for chapters, images, scene breaks...
 - **right**: the PDF, refreshed every time you press **Build PDF** (or Ctrl+Enter)
@@ -219,4 +236,7 @@ server for the editor in `bookpress/ui.html`.
 settings panel is generated from it), `bookpress/cover.py` the wrap-around
 cover and `bookpress/booklet.py` the booklet imposition.
 
-Tests: `python -m pytest tests` (needs `pytest` and `pypdf`).
+Tests: `python -m pytest tests` (needs `pytest` and `pypdf`). The downloadable
+apps are built by `.github/workflows/release.yml` with PyInstaller from
+`bookpress.spec` whenever a `v*` tag is pushed; `pyinstaller bookpress.spec`
+builds one locally.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import socket
 import sys
 import time
 import webbrowser
@@ -68,20 +69,53 @@ def cmd_fonts(args: argparse.Namespace) -> int:
     return 0
 
 
+def is_frozen() -> bool:
+    """True when running as a packaged app (PyInstaller)."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def default_library() -> Path:
+    """Where the packaged app keeps books: Documents/BookPress."""
+    home = Path.home()
+    docs = home / "Documents"
+    return (docs if docs.is_dir() else home) / "BookPress"
+
+
+def free_port(start: int) -> int:
+    for port in range(start, start + 50):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("127.0.0.1", port)) != 0:
+                return port
+    return start
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     from .server import serve
 
-    folder = Path(args.folder)
+    if args.folder is None:
+        folder = default_library() if is_frozen() else Path(".")
+    else:
+        folder = Path(args.folder)
     if folder.suffix == ".md":
         folder = folder.parent
-    if not (folder / "book.md").exists():
+    folder.mkdir(parents=True, exist_ok=True)
+    # A folder with a book.md is one book; anything else is a library of books (one sub-folder each).
+    library = args.library or (not (folder / "book.md").exists() and (is_frozen() or args.folder is None or any(
+        p.is_dir() and (p / "book.md").exists() for p in folder.iterdir())))
+    if not library and not (folder / "book.md").exists():
         create_sample_project(folder)
         print(f"Started a new book in {folder / 'book.md'}")
-    url = f"http://127.0.0.1:{args.port}/"
-    print(f"BookPress editor: {url}   (Ctrl+C to stop)")
+    port = free_port(args.port)
+    url = f"http://127.0.0.1:{port}/"
+    print("=" * 60)
+    print("  BookPress is running.")
+    print(f"  Editor:  {url}")
+    print(f"  Books:   {folder.resolve()}")
+    print("  Keep this window open while you write. Close it to stop.")
+    print("=" * 60)
     if not args.no_browser:
         webbrowser.open(url)
-    serve(folder, args.port)
+    serve(folder, port, library=library)
     return 0
 
 
@@ -105,16 +139,32 @@ def main(argv=None) -> int:
     f.set_defaults(func=cmd_fonts)
 
     s = sub.add_parser("serve", help="open the browser editor with live PDF preview")
-    s.add_argument("folder", nargs="?", default=".", help="book folder (default: current directory)")
+    s.add_argument("folder", nargs="?", default=None,
+                   help="a book folder (with book.md) or a folder of books (default: current directory, or "
+                        "Documents/BookPress for the packaged app)")
     s.add_argument("--port", type=int, default=8765)
     s.add_argument("--no-browser", action="store_true")
+    s.add_argument("--library", action="store_true", help="treat the folder as a library of books")
     s.set_defaults(func=cmd_serve)
 
     args = p.parse_args(argv)
     if not args.cmd:
-        # No arguments: open the editor in the current folder.
+        # No arguments (e.g. double-clicking the app): open the editor.
         args = p.parse_args(["serve"])
-    return args.func(args)
+    try:
+        return args.func(args)
+    except Exception:
+        if is_frozen():
+            import traceback
+
+            traceback.print_exc()
+            print("\nBookPress hit an error. Press Enter to close this window.")
+            try:
+                input()
+            except Exception:
+                pass
+            return 1
+        raise
 
 
 if __name__ == "__main__":
