@@ -1,3 +1,6 @@
+> Also in this repo: **[HintLadder](hintladder/)**, spoiler-free hints for any
+> video game, revealed one rung at a time.
+
 # WordMine
 
 Read games, visual novels, manga and books in another language on your

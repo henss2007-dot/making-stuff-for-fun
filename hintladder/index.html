@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<!-- artifact:start -->
+<title>HintLadder</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: one narrow column (phone in one hand, controller in the other). The ladder is the page; the form folds away once a ladder exists. */
+:root {
+  --bg: #EDF0F3;
+  --surface: #FFFFFF;
+  --ink: #141A21;
+  --muted: #5C6773;
+  --line: #CCD4DC;
+  --accent: #176F63;
+  --accent-ink: #FFFFFF;
+  --answer: #B8362C;
+  --redact: #1C2128;
+  --focus: #176F63;
+  --display: "Archivo Black", "Arial Black", Impact, sans-serif;
+  --body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F1316; --surface: #181D22; --ink: #E7EBEF; --muted: #97A2AD; --line: #2B333C;
+    --accent: #43B8A5; --accent-ink: #0B1512; --answer: #F0705F; --redact: #39424C; --focus: #43B8A5;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F1316; --surface: #181D22; --ink: #E7EBEF; --muted: #97A2AD; --line: #2B333C;
+  --accent: #43B8A5; --accent-ink: #0B1512; --answer: #F0705F; --redact: #39424C; --focus: #43B8A5;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--body); font-size: 16px; line-height: 1.5;
+  padding-block: 0 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 640px; margin: 0 auto; display: grid; gap: 20px; }
+header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 28px; }
+.wordmark { font-family: var(--display); font-size: 28px; letter-spacing: -0.5px; margin: 0; line-height: 1; }
+.wordmark span { color: var(--accent); }
+.tagline { color: var(--muted); margin: 0; font-size: 14px; }
+h2 { font-family: var(--display); font-size: 15px; letter-spacing: 0.4px; text-transform: uppercase; margin: 0 0 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+label small { font-weight: 400; color: var(--muted); }
+.field { display: grid; gap: 2px; }
+.form { display: grid; gap: 14px; }
+input[type=text], input[type=password], textarea, select {
+  width: 100%; font: inherit; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 9px 11px;
+}
+textarea { min-height: 72px; resize: vertical; }
+input:focus-visible, textarea:focus-visible, select:focus-visible, button:focus-visible, summary:focus-visible, a:focus-visible {
+  outline: 2px solid var(--focus); outline-offset: 2px;
+}
+button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 9px 14px; font-weight: 600; }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+button.danger { background: var(--answer); border-color: var(--answer); color: #fff; }
+button.quiet { border-color: transparent; background: transparent; color: var(--muted); padding: 6px 8px; font-weight: 500; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.row > * { min-width: 0; }
+.spacer { flex: 1; }
+.status { color: var(--muted); font-size: 14px; }
+.status.err { color: var(--answer); }
+.pulse { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 8px; animation: pulse 1.2s ease-in-out infinite; vertical-align: middle; }
+@keyframes pulse { 0%,100% { opacity: 0.25 } 50% { opacity: 1 } }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none } .rung .text { transition: none } }
+
+/* Ladder */
+.ladder-head { display: grid; gap: 6px; margin-bottom: 14px; }
+.ladder-head .game { font-family: var(--display); font-size: 18px; line-height: 1.2; text-wrap: balance; }
+.ladder-head .understood { color: var(--muted); font-size: 14px; }
+.conf { font-family: var(--mono); font-size: 11px; letter-spacing: 0.6px; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
+.conf.low { color: var(--answer); border-color: var(--answer); }
+.note { font-size: 14px; border-left: 3px solid var(--line); padding: 4px 10px; color: var(--muted); margin: 0; }
+.rungs { display: grid; gap: 0; border-top: 1px solid var(--line); }
+.rung { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); align-items: start; }
+.rung .lvl { font-family: var(--mono); font-size: 12px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--muted); padding-top: 4px; }
+.rung .lvl b { display: block; font-size: 22px; color: var(--ink); line-height: 1; margin-bottom: 2px; font-family: var(--display); }
+.rung.answer .lvl b { color: var(--answer); }
+.rung .body { display: grid; gap: 8px; }
+.rung .title { font-weight: 600; font-size: 14px; }
+.rung .bars { display: grid; gap: 6px; padding: 2px 0; }
+.bar { height: 12px; border-radius: 2px; background: var(--redact); }
+.rung .text { margin: 0; white-space: pre-wrap; }
+.rung .ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rung.locked .ctl button { visibility: hidden; }
+.rung.open .bars, .rung.open .ctl { display: none; }
+.rung.confirming .ctl .ask { display: none; }
+.rung .confirm { display: none; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+.rung.confirming .confirm { display: flex; }
+.example-tag { font-family: var(--mono); font-size: 11px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 2px 7px; }
+.followup { display: grid; gap: 10px; margin-top: 16px; }
+details.recent summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.recent ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.recent li { display: flex; gap: 8px; align-items: baseline; }
+.recent li button { flex: 1; text-align: left; font-weight: 500; padding: 7px 10px; min-width: 0; overflow-wrap: anywhere; }
+.recent li .when { color: var(--muted); font-size: 12px; white-space: nowrap; }
+details.settings { font-size: 14px; }
+details.settings summary { cursor: pointer; font-weight: 600; }
+.settings .form { margin-top: 12px; }
+footer { color: var(--muted); font-size: 13px; }
+footer p { margin: 6px 0; }
+a { color: var(--accent); }
+datalist { display: none; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1 class="wordmark">Hint<span>Ladder</span></h1>
+    <p class="tagline">Spoiler-free hints for any game, one rung at a time.</p>
+  </header>
+
+  <section class="card" id="askCard">
+    <form class="form" id="askForm" autocomplete="off">
+      <div class="field">
+        <label for="game">Game</label>
+        <input type="text" id="game" list="gameList" placeholder="Phoenix Wright: Ace Attorney" required>
+        <datalist id="gameList"></datalist>
+      </div>
+      <div class="field">
+        <label for="where">Where you are <small>(chapter, case, area, boss)</small></label>
+        <input type="text" id="where" placeholder="Case 2, cross-examining the second witness" required>
+      </div>
+      <div class="field">
+        <label for="stuck">What you're stuck on</label>
+        <textarea id="stuck" placeholder="I know one of her statements contradicts the evidence but I can't find which piece to present." required></textarea>
+      </div>
+      <div class="field">
+        <label for="tried">Already tried <small>(optional, keeps the hints from repeating it)</small></label>
+        <textarea id="tried" placeholder="Presented the autopsy report on the first statement, got a penalty." style="min-height:48px"></textarea>
+      </div>
+      <div class="row">
+        <button type="submit" class="primary" id="askBtn">Get hints</button>
+        <button type="button" id="stopBtn" hidden>Stop</button>
+        <span class="status" id="askStatus"></span>
+      </div>
+    </form>
+  </section>
+
+  <section class="card" id="ladderCard" hidden>
+    <div class="ladder-head">
+      <div class="row">
+        <div class="game" id="ladderGame"></div>
+        <span class="spacer"></span>
+        <span class="example-tag" id="exampleTag" hidden>Example</span>
+        <span class="conf" id="conf"></span>
+      </div>
+      <div class="understood" id="understood"></div>
+      <p class="note" id="note" hidden></p>
+    </div>
+    <div class="rungs" id="rungs"></div>
+    <div class="row" style="margin-top:10px">
+      <button type="button" class="quiet" id="hideAll">Hide all again</button>
+      <span class="spacer"></span>
+      <button type="button" class="quiet" id="newQuestion">New question</button>
+    </div>
+    <div class="followup" id="followup" hidden>
+      <label for="more">Still stuck? Tell it what happened and get a fresh ladder.</label>
+      <textarea id="more" placeholder="Tried the hint-3 statement with the knife, still wrong. I'm on the third statement now." style="min-height:56px"></textarea>
+      <div class="row">
+        <button type="button" id="moreBtn">Ask again with this</button>
+        <span class="status" id="moreStatus"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="recentCard" hidden>
+    <details class="recent">
+      <summary>Recent questions</summary>
+      <ul id="recentList"></ul>
+    </details>
+  </section>
+
+  <section class="card" id="settingsCard" hidden>
+    <details class="settings" id="settingsDetails">
+      <summary>Connection</summary>
+      <div class="form">
+        <p class="status" style="margin:0">This copy isn't running inside claude.ai, so it needs your own Anthropic API key. The key stays in this browser and is sent only to api.anthropic.com. Get one at <a href="https://console.anthropic.com" target="_blank" rel="noopener">console.anthropic.com</a>.</p>
+        <div class="field">
+          <label for="apiKey">API key</label>
+          <input type="password" id="apiKey" placeholder="sk-ant-...">
+        </div>
+        <div class="field">
+          <label for="model">Model</label>
+          <select id="model">
+            <option value="claude-opus-5-5">Claude Opus 5.5 (best hints)</option>
+            <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (faster)</option>
+            <option value="claude-haiku-5-5">Claude Haiku 5.5 (cheapest)</option>
+          </select>
+        </div>
+        <div class="row">
+          <button type="button" id="saveSettings">Save</button>
+          <span class="status" id="settingsStatus"></span>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <footer>
+    <p>Rung 1 is a nudge, rung 5 is the full answer. Stop reading as soon as you've got enough. Hints are written by an AI from its memory of the game, so for obscure games it can be wrong; say what you already tried and it will adjust.</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- constants ----------
+  const LEVELS = ["Nudge", "Narrow", "Point", "Almost", "Answer"];
+  const RULES = `You write spoiler-free hints for video games, in the style of the Universal Hint System: a ladder of five hints that starts vague and gets more specific, so the player can stop reading as soon as they have enough to continue on their own.
+
+The player tells you the game, where they are, and what they are stuck on. Reply with ONLY a JSON object of this exact shape:
+{"understood": "one sentence restating what the player is stuck on, in your words, adding no new information",
+ "confidence": "high" | "medium" | "low",
+ "note": "one short sentence if something needs saying (you are unsure which puzzle they mean, the game is obscure, their description conflicts with the game as you remember it); otherwise an empty string",
+ "hints": [
+   {"level": 1, "title": "2-4 word label", "text": "..."},
+   {"level": 2, "title": "...", "text": "..."},
+   {"level": 3, "title": "...", "text": "..."},
+   {"level": 4, "title": "...", "text": "..."},
+   {"level": 5, "title": "...", "text": "..."}
+ ]}
+
+The ladder:
+1 Nudge: reorient their thinking. Say what KIND of thing to consider (a timing contradiction in a statement, an item they already carry, a room they can go back to, a mechanic they have not used yet). No names, no specifics.
+2 Narrow: shrink the search space. Which area, which character, which category of evidence or item, which statement roughly, without naming the exact thing.
+3 Point: a concrete pointer that still leaves the final connection to the player (name the statement or the room or the character, but not the item to use there).
+4 Almost: everything but the last step; the player should be able to do it from here with a little thought.
+5 Answer: the exact solution, step by step (present X on statement Y, use item A on B, the code, the route, the strategy).
+
+Spoiler rules, which override everything else:
+- Help only with the immediate obstacle. Never mention anything from after the player's current point: later plot, twists, culprits, endings, characters or areas not yet reached, items not yet obtained.
+- Never hint at the shape of what is coming ("you will soon find out", "this matters later", "the real culprit").
+- Earlier rungs must not give away later rungs. Someone who reads only rung 1 learns only where to look.
+- Each rung stands alone; do not refer to "the previous hint".
+- If the description is ambiguous or you are unsure of the game's details, say so in "note", set confidence accordingly, and still give your best ladder. Do not bluff and do not invent item or character names.
+- If the player says what they already tried, do not suggest it again; account for it.
+- Keep each rung to 1-3 sentences of plain language, no markdown, no headings.`;
+
+  const SCHEMA = {
+    type: "object",
+    properties: {
+      understood: { type: "string" },
+      confidence: { type: "string", enum: ["high", "medium", "low"] },
+      note: { type: "string" },
+      hints: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { level: { type: "integer" }, title: { type: "string" }, text: { type: "string" } },
+          required: ["level", "title", "text"],
+          additionalProperties: false
+        }
+      }
+    },
+    required: ["understood", "confidence", "note", "hints"],
+    additionalProperties: false
+  };
+
+  const EXAMPLE = {
+    game: "Example: a locked-door puzzle",
+    understood: "You're in a study with a locked desk drawer and no key in sight.",
+    confidence: "high",
+    note: "This is a made-up puzzle so nothing here spoils a real game. Ask about yours above.",
+    hints: [
+      { level: 1, title: "Look again", text: "Locked things in this room aren't opened by keys alone. Think about what else in the room could be moved or read." },
+      { level: 2, title: "The bookshelf", text: "The bookshelf by the window is the part of the room that matters. Something about the order of what's on it." },
+      { level: 3, title: "Titles and numbers", text: "Three of the books have a number on the spine. The desk drawer has a dial, not a keyhole." },
+      { level: 4, title: "Read them in order", text: "Sort the three numbered books from left to right by their shelf position and read the numbers off in that order." },
+      { level: 5, title: "The combination", text: "The books read 4, 1, 7 from left to right. Turn the drawer dial to 4-1-7 and it opens." }
+    ]
+  };
+
+  // ---------- state ----------
+  const $ = (id) => document.getElementById(id);
+  const el = {
+    form: $("askForm"), game: $("game"), where: $("where"), stuck: $("stuck"), tried: $("tried"),
+    askBtn: $("askBtn"), stopBtn: $("stopBtn"), askStatus: $("askStatus"), gameList: $("gameList"),
+    ladderCard: $("ladderCard"), ladderGame: $("ladderGame"), conf: $("conf"), understood: $("understood"),
+    note: $("note"), rungs: $("rungs"), hideAll: $("hideAll"), newQuestion: $("newQuestion"),
+    followup: $("followup"), more: $("more"), moreBtn: $("moreBtn"), moreStatus: $("moreStatus"),
+    exampleTag: $("exampleTag"), recentCard: $("recentCard"), recentList: $("recentList"),
+    settingsCard: $("settingsCard"), settingsDetails: $("settingsDetails"), apiKey: $("apiKey"), model: $("model"),
+    saveSettings: $("saveSettings"), settingsStatus: $("settingsStatus"), askCard: $("askCard")
+  };
+
+  let mode = "pending";       // "sample" (inside claude.ai) | "key" (own API key) | "pending"
+  let sampleFn = null;
+  let controller = null;
+  let session = null;         // { game, where, stuck, tried, turns: [{role, content}], ladder, revealed, created }
+
+  // ---------- storage (per-browser conveniences only) ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage may be unavailable */ } }
+  };
+
+  // ---------- mode detection ----------
+  async function detectMode() {
+    if (window.claude && typeof window.claude.use === "function") {
+      el.askStatus.textContent = "Connecting…";
+      try { sampleFn = await window.claude.use("sample"); } catch (e) { sampleFn = null; }
+      el.askStatus.textContent = "";
+    }
+    if (sampleFn) {
+      mode = "sample";
+      el.settingsCard.hidden = true;
+    } else {
+      mode = "key";
+      el.settingsCard.hidden = false;
+      el.apiKey.value = store.get("hl.apiKey", "");
+      el.model.value = store.get("hl.model", "claude-opus-5-5");
+      if (!el.apiKey.value) el.settingsDetails.open = true;
+    }
+  }
+
+  // ---------- asking Claude ----------
+  function userTurn() {
+    return [
+      "Game: " + el.game.value.trim(),
+      "Where I am: " + el.where.value.trim(),
+      "Stuck on: " + el.stuck.value.trim(),
+      el.tried.value.trim() ? "Already tried: " + el.tried.value.trim() : ""
+    ].filter(Boolean).join("\n");
+  }
+
+  function normalize(data) {
+    if (!data || typeof data !== "object" || !Array.isArray(data.hints)) throw new Error("bad shape");
+    const hints = data.hints.slice(0, 5).map((h, i) => ({
+      level: i + 1,
+      title: String(h && h.title || LEVELS[i]),
+      text: String(h && h.text || "").trim()
+    }));
+    while (hints.length < 5) hints.push({ level: hints.length + 1, title: LEVELS[hints.length], text: "(no hint returned for this rung)" });
+    return {
+      understood: String(data.understood || ""),
+      confidence: ["high", "medium", "low"].includes(data.confidence) ? data.confidence : "medium",
+      note: String(data.note || ""),
+      hints
+    };
+  }
+
+  async function askSample(turns, signal) {
+    const input = [{ role: "user", content: RULES }, ...turns];
+    const data = await sampleFn.json(input, { cache: false, signal, modelTier: "default" });
+    return normalize(data);
+  }
+
+  async function askKey(turns, signal) {
+    const key = el.apiKey.value.trim();
+    if (!key) { el.settingsDetails.open = true; el.apiKey.focus(); throw { code: "no_key" }; }
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal,
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify({
+        model: el.model.value,
+        max_tokens: 4096,
+        system: RULES,
+        messages: turns,
+        output_config: { format: { type: "json_schema", schema: SCHEMA } }
+      })
+    });
+    if (!res.ok) {
+      let msg = "";
+      try { msg = (await res.json()).error.message; } catch (e) { msg = res.statusText; }
+      throw { code: "http_" + res.status, message: msg };
+    }
+    const body = await res.json();
+    if (body.stop_reason === "refusal") throw { code: "refused" };
+    const text = (body.content || []).filter((b) => b.type === "text").map((b) => b.text).join("");
+    if (body.stop_reason === "max_tokens") throw { code: "truncated" };
+    let data;
+    try { data = JSON.parse(text); } catch (e) { throw { code: "invalid_json" }; }
+    return normalize(data);
+  }
+
+  function ask(turns, signal) {
+    return mode === "sample" ? askSample(turns, signal) : askKey(turns, signal);
+  }
+
+  function friendlyError(e) {
+    const code = (e && e.code) || "";
+    if (code === "cancelled" || (e && e.name === "AbortError")) return "";
+    if (code === "no_key") return "Add your API key under Connection first.";
+    if (code === "not_granted" || code === "sampling_disabled") return "This page isn't allowed to ask Claude on your account.";
+    if (code === "rate_limited" || code === "http_429") return "Too many requests right now. Wait a minute and try again.";
+    if (code === "http_401") return "That API key was rejected. Check it under Connection.";
+    if (code === "http_403") return "This browser can't reach the API with that key (" + (e.message || "forbidden") + ").";
+    if (code === "refused") return "Claude declined to answer that one. Try rewording.";
+    if (code === "invalid_json" || code === "truncated") return "The answer came back garbled. Try again.";
+    if (code === "session_expired") return "You've been signed out. Sign in to claude.ai again.";
+    if (code === "prompt_too_large") return "That's too much text. Shorten the description.";
+    if (e && e.message === "Failed to fetch") return "Couldn't reach api.anthropic.com. Check your connection.";
+    return "Something went wrong" + (e && e.message ? ": " + e.message : ".") + " Try again.";
+  }
+
+  // ---------- rendering ----------
+  function barWidths(text) {
+    // Deterministic widths from the hint text so the redaction looks like real lines, without revealing length precisely.
+    let h = 7; for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) >>> 0;
+    const n = text.length > 140 ? 3 : 2;
+    const out = [];
+    for (let i = 0; i < n; i++) { out.push(55 + ((h >> (i * 5)) % 40)); }
+    out[n - 1] = 25 + ((h >> 13) % 45);
+    return out;
+  }
+
+  function renderLadder(ladder, gameName, revealed, isExample) {
+    el.ladderCard.hidden = false;
+    el.ladderGame.textContent = gameName;
+    el.exampleTag.hidden = !isExample;
+    el.conf.textContent = ladder.confidence + " confidence";
+    el.conf.className = "conf " + ladder.confidence;
+    el.understood.textContent = ladder.understood;
+    el.note.hidden = !ladder.note;
+    el.note.textContent = ladder.note;
+    el.followup.hidden = isExample;
+    el.rungs.textContent = "";
+    ladder.hints.forEach((h, i) => {
+      const r = document.createElement("div");
+      r.className = "rung" + (i === 4 ? " answer" : "");
+      r.dataset.i = i;
+      const lvl = document.createElement("div"); lvl.className = "lvl";
+      const b = document.createElement("b"); b.textContent = String(i + 1); lvl.appendChild(b);
+      lvl.appendChild(document.createTextNode(LEVELS[i]));
+      const body = document.createElement("div"); body.className = "body";
+      const title = document.createElement("div"); title.className = "title"; title.textContent = h.title;
+      const bars = document.createElement("div"); bars.className = "bars";
+      barWidths(h.text).forEach((w) => { const s = document.createElement("div"); s.className = "bar"; s.style.width = w + "%"; bars.appendChild(s); });
+      const text = document.createElement("p"); text.className = "text"; text.textContent = h.text; text.hidden = true;
+      const ctl = document.createElement("div"); ctl.className = "ctl";
+      const askB = document.createElement("button"); askB.type = "button"; askB.className = "ask";
+      askB.textContent = i === 4 ? "Reveal the answer" : "Reveal hint " + (i + 1);
+      const confirm = document.createElement("div"); confirm.className = "confirm";
+      confirm.appendChild(document.createTextNode("This rung gives the whole solution."));
+      const yes = document.createElement("button"); yes.type = "button"; yes.className = "danger"; yes.textContent = "Show it";
+      const no = document.createElement("button"); no.type = "button"; no.className = "quiet"; no.textContent = "Not yet";
+      confirm.appendChild(yes); confirm.appendChild(no);
+      ctl.appendChild(askB); ctl.appendChild(confirm);
+      body.appendChild(title); body.appendChild(bars); body.appendChild(text); body.appendChild(ctl);
+      r.appendChild(lvl); r.appendChild(body);
+      askB.addEventListener("click", () => { if (i === 4) r.classList.add("confirming"); else reveal(i); });
+      yes.addEventListener("click", () => { r.classList.remove("confirming"); reveal(i); });
+      no.addEventListener("click", () => r.classList.remove("confirming"));
+      el.rungs.appendChild(r);
+    });
+    applyRevealed(revealed);
+    if (!isExample) el.askCard.hidden = true;
+  }
+
+  function applyRevealed(n) {
+    [...el.rungs.children].forEach((r, i) => {
+      r.classList.toggle("open", i < n);
+      r.classList.toggle("locked", i > n);
+      r.querySelector(".text").hidden = i >= n;
+    });
+  }
+
+  function reveal(i) {
+    if (!session) return;
+    if (i !== session.revealed) return;
+    session.revealed = i + 1;
+    applyRevealed(session.revealed);
+    saveRecent();
+  }
+
+  // ---------- recent ----------
+  function recent() { return store.get("hl.recent", []); }
+  function saveRecent() {
+    if (!session || session.example) return;
+    const list = recent().filter((s) => s.id !== session.id);
+    list.unshift({ id: session.id, game: session.game, where: session.where, stuck: session.stuck, tried: session.tried, turns: session.turns, ladder: session.ladder, revealed: session.revealed, created: session.created });
+    store.set("hl.recent", list.slice(0, 30));
+    renderRecent();
+  }
+  function renderRecent() {
+    const list = recent();
+    el.recentCard.hidden = list.length === 0;
+    el.recentList.textContent = "";
+    const games = new Set();
+    list.forEach((s) => {
+      games.add(s.game);
+      const li = document.createElement("li");
+      const b = document.createElement("button"); b.type = "button";
+      b.textContent = s.game + " · " + (s.stuck.length > 70 ? s.stuck.slice(0, 70) + "…" : s.stuck);
+      b.addEventListener("click", () => { session = Object.assign({}, s); renderLadder(session.ladder, session.game, session.revealed, false); el.ladderCard.scrollIntoView({ block: "start" }); });
+      const when = document.createElement("span"); when.className = "when"; when.textContent = new Date(s.created).toLocaleDateString();
+      li.appendChild(b); li.appendChild(when); el.recentList.appendChild(li);
+    });
+    el.gameList.textContent = "";
+    games.forEach((g) => { const o = document.createElement("option"); o.value = g; el.gameList.appendChild(o); });
+  }
+
+  // ---------- flows ----------
+  async function run(turns, statusEl, btn, onDone) {
+    controller = new AbortController();
+    btn.disabled = true; el.askBtn.disabled = true; el.moreBtn.disabled = true;
+    el.stopBtn.hidden = false;
+    statusEl.className = "status";
+    statusEl.innerHTML = '<span class="pulse"></span>Thinking… this can take up to a minute.';
+    try {
+      const ladder = await ask(turns, controller.signal);
+      onDone(ladder);
+      statusEl.textContent = "";
+    } catch (e) {
+      const msg = friendlyError(e);
+      statusEl.className = "status" + (msg ? " err" : "");
+      statusEl.textContent = msg;
+    } finally {
+      btn.disabled = false; el.askBtn.disabled = false; el.moreBtn.disabled = false;
+      el.stopBtn.hidden = true; controller = null;
+    }
+  }
+
+  el.form.addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    if (mode === "pending") { el.askStatus.textContent = "Still connecting, try again in a moment."; return; }
+    const turns = [{ role: "user", content: userTurn() }];
+    run(turns, el.askStatus, el.askBtn, (ladder) => {
+      session = {
+        id: String(Date.now()), game: el.game.value.trim(), where: el.where.value.trim(), stuck: el.stuck.value.trim(), tried: el.tried.value.trim(),
+        turns: turns.concat([{ role: "assistant", content: JSON.stringify(ladder) }]),
+        ladder, revealed: 0, created: Date.now()
+      };
+      renderLadder(ladder, session.game, 0, false);
+      saveRecent();
+      el.ladderCard.scrollIntoView({ block: "start" });
+    });
+  });
+
+  el.moreBtn.addEventListener("click", () => {
+    if (!session || session.example) return;
+    const extra = el.more.value.trim();
+    if (!extra) { el.more.focus(); return; }
+    const turns = session.turns.concat([{ role: "user", content: "That didn't get me through. Update: " + extra + "\nGive a fresh five-rung ladder in the same JSON shape that takes this into account, and don't repeat what I've already tried." }]);
+    run(turns, el.moreStatus, el.moreBtn, (ladder) => {
+      session.turns = turns.concat([{ role: "assistant", content: JSON.stringify(ladder) }]);
+      session.ladder = ladder; session.revealed = 0;
+      el.more.value = "";
+      renderLadder(ladder, session.game, 0, false);
+      saveRecent();
+      el.ladderCard.scrollIntoView({ block: "start" });
+    });
+  });
+
+  el.stopBtn.addEventListener("click", () => { if (controller) controller.abort(); });
+  el.hideAll.addEventListener("click", () => { if (session) { session.revealed = 0; applyRevealed(0); saveRecent(); } });
+  el.newQuestion.addEventListener("click", () => {
+    el.askCard.hidden = false; el.ladderCard.hidden = true;
+    if (session && !session.example) el.game.value = session.game;
+    el.where.focus(); el.askCard.scrollIntoView({ block: "start" });
+  });
+  el.saveSettings.addEventListener("click", () => {
+    store.set("hl.apiKey", el.apiKey.value.trim()); store.set("hl.model", el.model.value);
+    el.settingsStatus.textContent = "Saved in this browser."; setTimeout(() => { el.settingsStatus.textContent = ""; }, 2000);
+  });
+
+  // ---------- boot ----------
+  renderRecent();
+  session = { example: true, ladder: EXAMPLE, game: EXAMPLE.game, revealed: 1 };
+  renderLadder(EXAMPLE, EXAMPLE.game, 1, true);
+  el.askCard.hidden = false;
+  detectMode();
+})();
+</script>
+<!-- artifact:end -->
+</body>
+</html>
