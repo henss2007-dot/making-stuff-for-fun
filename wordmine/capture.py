@@ -29,8 +29,9 @@ def fingerprint(img: Image.Image) -> bytes:
     return img.convert("L").resize((32, 16), Image.BILINEAR).tobytes()
 
 
-def changed(a: Optional[bytes], b: bytes, threshold: float = 0.04) -> bool:
-    if a is None or len(a) != len(b):
+def changed(a: Optional[bytes], b: Optional[bytes], threshold: float = 0.04) -> bool:
+    """True when two fingerprints differ noticeably (or either is missing)."""
+    if a is None or b is None or len(a) != len(b):
         return True
     diff = sum(abs(x - y) for x, y in zip(a, b)) / (len(b) * 255)
     return diff > threshold

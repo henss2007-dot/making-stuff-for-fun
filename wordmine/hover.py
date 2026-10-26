@@ -62,23 +62,40 @@ def char_boxes(boxes: list[WordBox], origin: tuple[int, int], scale: float = 1.0
     ox, oy = origin
     canon_parts: list[str] = []
     out: list[CharBox] = []
+    # Group consecutive boxes by text line.
+    lines: list[list[WordBox]] = []
     for b in boxes:
-        chars = [c for c in b.text if not c.isspace()]
-        if not chars:
+        if not [c for c in b.text if not c.isspace()]:
             continue
-        n = len(chars)
-        # Vertical text: a tall narrow box means characters stack downwards.
-        vertical = b.height > b.width * 1.5 and n > 1
-        for i, _ in enumerate(chars):
-            if vertical:
-                step = b.height / n
-                out.append(CharBox(ox + b.left * scale, oy + (b.top + i * step) * scale,
-                                   ox + (b.left + b.width) * scale, oy + (b.top + (i + 1) * step) * scale))
-            else:
-                step = b.width / n
+        if lines and lines[-1][0].line == b.line:
+            lines[-1].append(b)
+        else:
+            lines.append([b])
+    for group in lines:
+        chars = [[c for c in b.text if not c.isspace()] for b in group]
+        n_total = sum(len(c) for c in chars)
+        left = min(b.left for b in group)
+        top = min(b.top for b in group)
+        right = max(b.left + b.width for b in group)
+        bottom = max(b.top + b.height for b in group)
+        # A vertical column (manga): Tesseract's per-chunk boxes are unreliable
+        # there, so spread the line's characters evenly down the column.
+        if (bottom - top) > (right - left) * 1.5 and n_total > 1:
+            step = (bottom - top) / n_total
+            i = 0
+            for cs in chars:
+                for _ in cs:
+                    out.append(CharBox(ox + left * scale, oy + (top + i * step) * scale,
+                                       ox + right * scale, oy + (top + (i + 1) * step) * scale))
+                    i += 1
+                canon_parts.append("".join(cs))
+            continue
+        for b, cs in zip(group, chars):
+            step = b.width / len(cs)
+            for i, _ in enumerate(cs):
                 out.append(CharBox(ox + (b.left + i * step) * scale, oy + b.top * scale,
                                    ox + (b.left + (i + 1) * step) * scale, oy + (b.top + b.height) * scale))
-        canon_parts.append("".join(chars))
+            canon_parts.append("".join(cs))
     return "".join(canon_parts), out
 
 
@@ -111,7 +128,9 @@ class HoverMap:
                 base = offs[t.sent_index]
                 self.spans.append(Span(base + t.start, base + t.end, "word", token=t))
         for h in grammar_hits:
-            si = sentences.index(h.sentence) if h.sentence in sentences else -1
+            si = getattr(h, "sent_index", -1)
+            if not (0 <= si < len(sentences) and sentences[si] == h.sentence):
+                si = sentences.index(h.sentence) if h.sentence in sentences else -1
             if si >= 0:
                 base = offs[si]
                 self.spans.append(Span(base + h.start, base + h.end, "grammar", grammar=h))

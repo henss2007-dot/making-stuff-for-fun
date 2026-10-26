@@ -86,6 +86,10 @@ def check(sentence: str, word: str, reading: str, alternatives: list[str], alt_l
         raise AIError(f"Anthropic API error: {exc.message}") from exc
     except anthropic.APIConnectionError as exc:
         raise AIError("Could not reach the Anthropic API (network)") from exc
+    except TypeError as exc:  # the SDK raises a plain TypeError when it finds no credentials at all
+        raise AIError("No Anthropic API key found: set ANTHROPIC_API_KEY or paste a key in Settings > Dictionary & AI") from exc
+    except anthropic.AnthropicError as exc:
+        raise AIError(f"Anthropic API error: {exc}") from exc
 
     if response.stop_reason == "refusal":
         return None
@@ -174,6 +178,10 @@ def explain_sentence(sentence: str, lang: str, model: str = DEFAULT_MODEL, api_k
         raise AIError(f"Anthropic API error: {exc.message}") from exc
     except anthropic.APIConnectionError as exc:
         raise AIError("Could not reach the Anthropic API (network)") from exc
+    except TypeError as exc:  # the SDK raises a plain TypeError when it finds no credentials at all
+        raise AIError("No Anthropic API key found: set ANTHROPIC_API_KEY or paste a key in Settings > Dictionary & AI") from exc
+    except anthropic.AnthropicError as exc:
+        raise AIError(f"Anthropic API error: {exc}") from exc
 
     if response.stop_reason == "refusal":
         return None

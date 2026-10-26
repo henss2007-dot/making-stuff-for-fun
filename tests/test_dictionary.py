@@ -66,3 +66,36 @@ def test_prefetch_calls_back(tmp_path):
     t = dic.prefetch([("辛い", "からい"), ("ゲーム", ""), ("辛い", "からい")], "ja", on_each=lambda w, e: got.append(w))
     t.join(timeout=10)
     assert got == ["辛い", "ゲーム"]
+
+
+def test_network_failure_is_not_cached(tmp_path):
+    import requests
+    from wordmine.dictionary import Dictionary
+    dic = Dictionary({}, tmp_path)
+    with mock.patch("wordmine.lookup.requests.get", side_effect=requests.ConnectionError()):
+        e = dic.get("Haus", "de")
+    assert e.meaning == "" and e.failed is True
+    assert dic.cached("Haus", "de") is None
+    with mock.patch("wordmine.lookup.requests.get", return_value=mock.Mock(status_code=200, json=lambda: {"de": [{"partOfSpeech": "Noun", "definitions": [{"definition": "house"}]}]}, raise_for_status=lambda: None)):
+        assert dic.get("Haus", "de").meaning == "<i>Noun</i> house"
+
+
+def test_prefetch_retries_earlier_miss_once(tmp_path):
+    dic = Dictionary({}, tmp_path)
+    calls = []
+    with mock.patch("wordmine.dictionary.lookup", side_effect=lambda w, l, **k: (calls.append(w), Entry())[1]):
+        dic.get("zzz", "de")                       # genuine miss, cached as empty
+        dic.prefetch([("zzz", "")], "de", delay=0).join(10)
+        dic.prefetch([("zzz", "")], "de", delay=0).join(10)
+    assert calls == ["zzz", "zzz"]                # second prefetch does not retry again
+
+
+def test_corrupt_index_pickle_is_rebuilt(tmp_path):
+    p = make_jmdict(tmp_path)
+    JMdict(str(p), tmp_path)
+    pkl = tmp_path / "jmdict-eng-3.5.0.index.pkl"
+    pkl.write_bytes(b"garbage")
+    import os, time
+    os.utime(pkl, (time.time() + 5, time.time() + 5))
+    d = JMdict(str(p), tmp_path)
+    assert len(d.entries) == 4

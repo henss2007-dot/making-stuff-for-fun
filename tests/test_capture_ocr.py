@@ -127,3 +127,18 @@ def test_missing_language_data_gives_clear_error():
         pytest.skip("Tesseract not installed")
     with pytest.raises(RuntimeError, match="language data missing"):
         TesseractOCR("en", tesseract_lang="xyz_nonexistent")
+
+
+def test_changed_is_symmetric_with_none():
+    a = fingerprint(Image.new("RGB", (20, 10), "black"))
+    assert changed(a, None) and changed(None, a) and not changed(a, a)
+
+
+def test_scales_rejects_nonsense():
+    from wordmine.ocr import TesseractOCR
+    if not _tesseract_has("eng"):
+        pytest.skip("Tesseract not installed")
+    assert TesseractOCR("en", scale=0)._scales() == [1.0, 2.0]
+    assert TesseractOCR("en", scale=-2)._scales() == [1.0, 2.0]
+    assert TesseractOCR("en", scale="3")._scales() == [3.0]
+    assert TesseractOCR("en", scale="auto")._scales() == [1.0, 2.0]

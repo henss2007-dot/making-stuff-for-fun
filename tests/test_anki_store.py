@@ -140,12 +140,56 @@ def test_word_list_and_exports(tmp_path):
     again = Store(tmp_path)
     assert [w["word"] for w in again.words] == ["辛い", "店", "〜ている"]
     assert again.get(r1["id"])["status"] == "learning"
-    n = again.export_tsv(tmp_path / "out.tsv")
+    n = again.export_tsv(tmp_path / "out.tsv", note_type="WordMine", deck="JP")
     lines = (tmp_path / "out.tsv").read_text(encoding="utf-8").splitlines()
-    assert n == 3 and lines[0] == "#separator:tab" and lines[1] == "#html:true"
-    assert lines[3].startswith("辛い\tからい\tspicy\tこの辛い料理\tGame\t")
+    assert n == 2  # only word cards; grammar goes to its own file
+    assert lines[:5] == ["#separator:tab", "#html:true", "#notetype:WordMine", "#deck:JP",
+                         "#columns:Word\tReading\tMeaning\tSentence\tImage\tSource"]
+    assert lines[5] == "辛い\tからい\tspicy\tこの<b>辛い</b>料理\t\tGame"
+    g = again.export_tsv(tmp_path / "g.tsv", kind="grammar", note_type="WordMine Grammar")
+    glines = (tmp_path / "g.tsv").read_text(encoding="utf-8").splitlines()
+    assert g == 1 and glines[4] == "#columns:Pattern\tMeaning\tSentence\tNotes\tImage\tSource"
+    assert glines[5].startswith("〜ている\tongoing\t本を<b>読んでいる</b>。\t")
     assert again.export_csv(tmp_path / "out.csv") == 3
     assert "word,reading,meaning" in (tmp_path / "out.csv").read_text(encoding="utf-8-sig").splitlines()[0]
     assert again.export_text([r1]) == "辛い (からい)"
     again.remove(r2["id"])
     assert len(Store(tmp_path).words) == 2
+
+
+def test_highlight_prefix_for_conjugated_words():
+    assert highlight("勇者は魔王を倒した。", "倒す") == "勇者は魔王を<b>倒</b>した。"
+    assert highlight("本を読んでいる。", "読む") == "本を<b>読</b>んでいる。"
+    assert highlight("nobody dared to enter", "dare") == "nobody <b>dare</b>d to enter"
+    assert highlight("abc", "zz") == "abc"
+
+
+def test_store_has_with_sentence_and_surface(tmp_path):
+    s = Store(tmp_path)
+    s.add("〜ている", "", "ongoing", "本を読んでいる。", kind="grammar", notes="読んでいる")
+    assert s.has("〜ている", kind="grammar", sentence="本を読んでいる。")
+    assert not s.has("〜ている", kind="grammar", sentence="別の文。")
+    r = s.add("倒す", "たおす", "", "勇者は魔王を倒した。", surface="倒し")
+    assert r["surface"] == "倒し"
+
+
+def test_add_record_highlights_surface(fake_anki):
+    url, state = fake_anki
+    a = AnkiConnect(url, "WordMine", "WordMine")
+    a.add_record({"kind": "word", "word": "倒す", "surface": "倒し", "reading": "たおす", "meaning": "", "sentence": "勇者は魔王を倒した。", "source": ""})
+    assert state["notes"][0]["fields"]["Sentence"] == "勇者は魔王を<b>倒し</b>た。"
+
+
+def test_export_tsv_copies_images_to_media_folder(tmp_path):
+    s = Store(tmp_path)
+    shot = tmp_path / "shots" / "20260101_000000_000000_魔王.png"
+    shot.parent.mkdir()
+    Image.new("RGB", (8, 8)).save(shot)
+    s.add("魔王", "まおう", "demon king", "勇者は魔王を倒した。", "Game", image=str(shot))
+    s.add("勇者", "ゆうしゃ", "hero", "勇者は魔王を倒した。", "Game", image=str(tmp_path / "missing.png"))
+    media = tmp_path / "out_media"
+    assert s.export_tsv(tmp_path / "out.tsv", media_dir=media) == 2
+    rows = (tmp_path / "out.tsv").read_text(encoding="utf-8").splitlines()[5:]
+    assert rows[0].split("\t")[4] == '<img src="20260101_000000_000000_魔王.png">'
+    assert rows[1].split("\t")[4] == ""  # missing file: no broken reference
+    assert (media / "20260101_000000_000000_魔王.png").exists()

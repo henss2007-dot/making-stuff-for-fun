@@ -46,13 +46,23 @@ class JMdict:
         self.index: dict[str, list[int]] = {}
         pkl = cache_dir / (self.path.stem.replace(".json", "") + ".index.pkl")
         if pkl.exists() and pkl.stat().st_mtime >= self.path.stat().st_mtime:
-            with pkl.open("rb") as fh:
-                self.entries, self.index = pickle.load(fh)
-            return
+            try:
+                with pkl.open("rb") as fh:
+                    self.entries, self.index = pickle.load(fh)
+                if self.entries and self.index:
+                    return
+            except Exception:
+                pass  # truncated or corrupt index: rebuild it below
+            try:
+                pkl.unlink()
+            except OSError:
+                pass
         self._build()
         try:
-            with pkl.open("wb") as fh:
+            tmp = pkl.with_suffix(".pkl.tmp")
+            with tmp.open("wb") as fh:
                 pickle.dump((self.entries, self.index), fh, protocol=pickle.HIGHEST_PROTOCOL)
+            os.replace(tmp, pkl)
         except OSError:
             pass
 
@@ -118,25 +128,54 @@ class JMdict:
 class Dictionary:
     """Cache in front of JMdict (offline) and the online lookups."""
 
-    def __init__(self, cfg: dict, app_dir: Path = APP_DIR):
+    def __init__(self, cfg: dict, app_dir: Path = APP_DIR, load_jmdict: bool = True):
         self.cfg = cfg
+        self.app_dir = app_dir
         self.path = app_dir / CACHE_FILE
         self.cache: dict[str, dict] = {}
         self.lock = threading.Lock()
         self._dirty = False
         self.jmdict: Optional[JMdict] = None
         self.jmdict_error = ""
+        self._retried: set[tuple[str, str]] = set()
         if self.path.exists():
             try:
                 self.cache = json.loads(self.path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 self.cache = {}
-        jm = cfg.get("jmdict_path") or ""
-        if jm:
-            try:
-                self.jmdict = JMdict(jm, app_dir)
-            except Exception as exc:  # bad path / corrupt file: fall back to online
-                self.jmdict_error = f"Could not load JMdict from {jm}: {exc}"
+        if load_jmdict:
+            self.load_jmdict()
+
+    def load_jmdict(self) -> str:
+        """Build/load the offline dictionary now (slow the first time). Returns an error message or ''."""
+        jm = self.cfg.get("jmdict_path") or ""
+        if not jm:
+            with self.lock:
+                self.jmdict = None
+            return ""
+        try:
+            built = JMdict(jm, self.app_dir)
+            err = ""
+        except Exception as exc:  # bad path / corrupt file: fall back to online
+            built, err = None, f"Could not load JMdict from {jm}: {exc}"
+        with self.lock:
+            self.jmdict = built
+            self.jmdict_error = err
+        return err
+
+    def load_jmdict_async(self, on_done: Optional[Callable[[str], None]] = None) -> Optional[threading.Thread]:
+        """Load the offline dictionary on a worker thread (the index build can take a minute)."""
+        if not (self.cfg.get("jmdict_path") or ""):
+            return None
+
+        def run():
+            err = self.load_jmdict()
+            if on_done:
+                on_done(err)
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        return t
 
     @staticmethod
     def _key(word: str, lang: str, reading_hint: str) -> str:
@@ -160,6 +199,8 @@ class Dictionary:
             entry = self.jmdict.lookup(word, reading_hint, pos)
         if not entry.meaning and online:
             entry = lookup(word, lang, reading_hint=reading_hint, pos=pos)
+        if entry.failed:
+            return entry  # offline / server trouble: do not remember this as "no such word"
         if entry.meaning or online:
             with self.lock:
                 self.cache[self._key(word, lang, reading_hint)] = {
@@ -178,12 +219,18 @@ class Dictionary:
             for word, reading in pairs:
                 if stop is not None and stop.is_set():
                     break
-                had = self.cached(word, lang, reading)
-                entry = had if had is not None else self.get(word, lang, reading)
-                if on_each:
-                    on_each(word, entry)
-                if had is None and self.jmdict is None:
-                    time.sleep(delay)  # be gentle with the public dictionary APIs
+                try:
+                    had = self.cached(word, lang, reading)
+                    fetch = had is None or (not had.meaning and (word, reading) not in self._retried)
+                    if fetch and had is not None:
+                        self._retried.add((word, reading))  # one retry per session for earlier misses
+                    entry = self.get(word, lang, reading) if fetch else had
+                    if on_each:
+                        on_each(word, entry)
+                    if fetch and self.jmdict is None:
+                        time.sleep(delay)  # be gentle with the public dictionary APIs
+                except Exception:
+                    continue  # one bad word must not stop the batch
             self.save()
 
         t = threading.Thread(target=run, daemon=True)

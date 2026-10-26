@@ -31,6 +31,9 @@ DEFAULTS: dict[str, Any] = {
     "jmdict_path": "",
     # Seconds the on-screen tooltip waits before following the mouse off a word.
     "hover_hide_delay": 0.4,
+    # Only show the on-screen popup while this key is held: "" (always), "alt",
+    # "ctrl" or "shift".
+    "hover_modifier": "",
     # Text direction for OCR: "auto" (vertical when the region is taller than
     # wide), "horizontal" or "vertical". Vertical needs Tesseract's jpn_vert.
     "orientation": "auto",

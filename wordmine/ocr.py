@@ -15,13 +15,47 @@ class WordBox:
     top: int
     width: int
     height: int
+    line: int = 0   # index of the text line (reading order) the chunk belongs to
 
-# ISO language -> Tesseract traineddata name
+# ISO language -> Tesseract traineddata name. Any code not listed is passed to
+# Tesseract as is, so a Tesseract code (e.g. "ind") also works as the language.
 _TESS_LANG = {
     "ja": "jpn", "en": "eng", "de": "deu", "fr": "fra", "es": "spa", "it": "ita",
     "pt": "por", "ru": "rus", "ko": "kor", "zh": "chi_sim", "zh-tw": "chi_tra",
     "nl": "nld", "pl": "pol", "sv": "swe", "tr": "tur", "vi": "vie", "th": "tha",
+    "id": "ind", "ms": "msa", "ar": "ara", "he": "heb", "hi": "hin", "bn": "ben", "ta": "tam",
+    "fa": "fas", "ur": "urd", "el": "ell", "cs": "ces", "sk": "slk", "hu": "hun", "ro": "ron",
+    "bg": "bul", "uk": "ukr", "fi": "fin", "da": "dan", "no": "nor", "nb": "nor", "hr": "hrv",
+    "sr": "srp", "sl": "slv", "lt": "lit", "lv": "lav", "et": "est", "ca": "cat", "eu": "eus",
+    "gl": "glg", "tl": "tgl", "sw": "swa", "af": "afr", "is": "isl", "ga": "gle", "cy": "cym",
+    "la": "lat", "ka": "kat", "hy": "hye", "az": "aze", "kk": "kaz", "uz": "uzb", "mn": "mon",
+    "ne": "nep", "si": "sin", "km": "khm", "lo": "lao", "my": "mya", "am": "amh",
 }
+
+_DEFAULT_TESSERACT_PATHS = [
+    r"%ProgramFiles%\Tesseract-OCR\tesseract.exe",
+    r"%ProgramFiles(x86)%\Tesseract-OCR\tesseract.exe",
+    r"%LocalAppData%\Programs\Tesseract-OCR\tesseract.exe",
+    r"%LocalAppData%\Tesseract-OCR\tesseract.exe",
+    "/opt/homebrew/bin/tesseract",
+    "/usr/local/bin/tesseract",
+    "/usr/bin/tesseract",
+]
+
+
+def find_tesseract() -> str:
+    """Path of the tesseract executable: PATH first, then the usual install folders."""
+    import os
+    import shutil
+
+    found = shutil.which("tesseract")
+    if found:
+        return found
+    for raw in _DEFAULT_TESSERACT_PATHS:
+        cand = os.path.expandvars(raw)
+        if "%" not in cand and os.path.isfile(cand):
+            return cand
+    return ""
 
 
 def otsu_threshold(gray: Image.Image) -> int:
@@ -83,17 +117,18 @@ class TesseractOCR:
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError("pip install pytesseract") from exc
         self._pt = pytesseract
-        if cmd:
-            pytesseract.pytesseract.tesseract_cmd = cmd
+        self.cmd = cmd or find_tesseract()
+        if self.cmd:
+            pytesseract.pytesseract.tesseract_cmd = self.cmd
         self.lang = tesseract_lang or _TESS_LANG.get(lang, lang)
         self.scale = scale
         try:
             available = set(pytesseract.get_languages(config=""))
         except Exception as exc:
             raise RuntimeError(
-                "Tesseract is not installed or not on PATH. Install it (Windows: "
-                "https://github.com/UB-Mannheim/tesseract/wiki, tick the language "
-                "data you need) or set tesseract_cmd in config.json.\n" + str(exc)
+                "Tesseract OCR was not found. Install it (Windows: https://github.com/UB-Mannheim/tesseract/wiki, "
+                "tick the languages you read); if it is installed somewhere unusual, point Settings > Reading > "
+                f"Tesseract program at tesseract.exe. ({exc})"
             ) from exc
         missing = [l for l in self.lang.split("+") if l not in available]
         if missing:
@@ -115,12 +150,11 @@ class TesseractOCR:
     def _scales(self) -> list[float]:
         """Scales to try. "auto" runs 1x and 2x and keeps the more confident read:
         large text reads best unscaled, small game fonts need the upscale."""
-        if isinstance(self.scale, (int, float)) and self.scale > 0:
-            return [float(self.scale)]
         try:
-            return [float(self.scale)]
+            s = float(self.scale)
         except (TypeError, ValueError):
             return [1.0, 2.0]
+        return [s] if 0.25 <= s <= 8 else [1.0, 2.0]
 
     def _read(self, prepared: Image.Image, lang: str, psm: int, scale: float, border: int) -> tuple[float, str, list[WordBox]]:
         """One Tesseract pass; returns (mean word confidence, text, word boxes)."""
@@ -146,12 +180,14 @@ class TesseractOCR:
                                  max(1, int(round(data["width"][i] / scale))), max(1, int(round(data["height"][i] / scale)))))
         ordered_keys = sorted(lines)
         text = "\n".join(" ".join(lines[k]) for k in ordered_keys)
-        # Boxes in the same reading order as the text.
+        # Boxes in the same reading order as the text, tagged with their line.
         order = {k: n for n, k in enumerate(ordered_keys)}
         keyed = []
         for i, word in enumerate(data["text"]):
             if word.strip():
                 keyed.append(order[(data["block_num"][i], data["par_num"][i], data["line_num"][i])])
+        for b, ln in zip(boxes, keyed):
+            b.line = ln
         boxes = [b for _, b in sorted(zip(keyed, boxes), key=lambda kb: kb[0])]
         return (sum(confs) / len(confs) if confs else 0.0), text, boxes
 

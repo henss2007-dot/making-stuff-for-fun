@@ -15,11 +15,13 @@ def run_checks(cfg: dict) -> list[tuple[str, str]]:
 
     try:
         import pytesseract
-        if cfg["tesseract_cmd"]:
-            pytesseract.pytesseract.tesseract_cmd = cfg["tesseract_cmd"]
+        from .ocr import find_tesseract
+        cmd = cfg["tesseract_cmd"] or find_tesseract()
+        if cmd:
+            pytesseract.pytesseract.tesseract_cmd = cmd
         ver = pytesseract.get_tesseract_version()
         langs = sorted(pytesseract.get_languages(config=""))
-        out.append((OK, f"Tesseract {ver} found; languages installed: {', '.join(langs)}"))
+        out.append((OK, f"Tesseract {ver} found ({cmd or 'on PATH'}); languages installed: {', '.join(langs)}"))
         from .ocr import _TESS_LANG
         need = cfg["tesseract_lang"] or _TESS_LANG.get(cfg["lang"], cfg["lang"])
         for l in need.split("+"):
@@ -33,7 +35,7 @@ def run_checks(cfg: dict) -> list[tuple[str, str]]:
     except Exception as exc:
         out.append((FAIL, f"Tesseract OCR not found ({exc}). Windows: https://github.com/UB-Mannheim/tesseract/wiki (tick the languages you read). "
                           "macOS: brew install tesseract tesseract-lang. Linux: apt install tesseract-ocr tesseract-ocr-jpn. "
-                          "If it is installed but not on PATH, set tesseract_cmd in Settings."))
+                          "If it is installed somewhere unusual, point Settings > Reading > Tesseract program at tesseract.exe."))
 
     try:
         import manga_ocr  # noqa: F401

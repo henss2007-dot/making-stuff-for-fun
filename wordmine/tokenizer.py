@@ -101,11 +101,38 @@ def clean_ocr_text(text: str, lang: str) -> str:
     return text.strip()
 
 
+_JA_END = "。！？!?"
+_JA_CLOSE = "」』"
+
+
+def _split_ja(text: str) -> list[str]:
+    """Split after 。！？ (and a closing quote right after them). Runs like
+    ！？ stay together and an ellipsis never ends a sentence: game lines are
+    full of mid-sentence …"""
+    parts, buf = [], ""
+    n = len(text)
+    for i, ch in enumerate(text):
+        buf += ch
+        nxt = text[i + 1] if i + 1 < n else ""
+        if ch in _JA_END and nxt not in _JA_END + _JA_CLOSE:
+            parts.append(buf)
+            buf = ""
+        elif ch in _JA_CLOSE and nxt in "「『":
+            parts.append(buf)  # 「おい」「なんだ」: two quoted lines
+            buf = ""
+        elif ch in _JA_CLOSE and len(buf) >= 2 and buf[-2] in _JA_END and nxt not in _JA_END + _JA_CLOSE:
+            parts.append(buf)
+            buf = ""
+    if buf:
+        parts.append(buf)
+    return parts
+
+
 def split_sentences(text: str, lang: str) -> list[str]:
     if lang == "ja":
-        parts = re.split(r"(?<=[。！？!?…」』])", text)
+        parts = _split_ja(text)
     else:
-        parts = re.split(r"(?<=[.!?…])\s+", text)
+        parts = re.split(r"(?<=[.!?])\s+", text)
     return [p.strip() for p in parts if p.strip()]
 
 
@@ -122,16 +149,22 @@ def _node_info(node) -> tuple[str, str, str, str]:
     return lemma, kata_to_hira(reading), pos1, pos2
 
 
-def _spans(nodes) -> list[tuple[int, int, object]]:
-    """Attach (start, end) character offsets to each node of one parse."""
+def _spans(nodes, sentence: str) -> list[tuple[int, int, object]]:
+    """Attach (start, end) character offsets to each node of one parse.
+
+    N-best nodes do not carry the whitespace that preceded them, so the
+    surface is located in the sentence itself (searching forward only).
+    """
     out, pos = [], 0
     for n in nodes:
         if not n.surface:
             continue
-        pos += len(n.white_space or "")
-        start = pos
-        pos += len(n.surface)
-        out.append((start, pos, n))
+        start = sentence.find(n.surface, pos)
+        if start < 0:
+            start = pos
+        end = start + len(n.surface)
+        out.append((start, end, n))
+        pos = end
     return out
 
 
@@ -151,8 +184,8 @@ def tokenize_japanese(text: str, sentences: Optional[list[str]] = None) -> list[
         parses = tagger.nbestToNodeList(sentence, NBEST)
         if not parses:
             continue
-        best = _spans(parses[0])
-        others = [_spans(p) for p in parses[1:]]
+        best = _spans(parses[0], sentence)
+        others = [_spans(p, sentence) for p in parses[1:]]
         for start, end, node in best:
             lemma, reading, pos1, pos2 = _node_info(node)
             if pos1 in _JA_SKIP_POS1 or pos2 in _JA_SKIP_POS2:

@@ -30,6 +30,7 @@ class Entry:
     reading: str = ""            # reading of the chosen entry
     readings: list[str] = field(default_factory=list)  # every reading the dictionary lists for this spelling
     matched_context: bool = True  # False when no entry matched the reading chosen in context
+    failed: bool = False          # True when the lookup could not be completed (offline, server error)
 
 
 # Our language codes -> the codes Wiktionary's definition API keys results by
@@ -46,21 +47,28 @@ def lookup(word: str, lang: str, reading_hint: str = "", pos: str = "") -> Entry
     Wiktionary, which has entries for words in several hundred languages.
     """
     entry = Entry()
+    failed = False
     try:
         if lang == "ja":
             entry = _jisho(word, reading_hint, pos)
         elif lang == "en":
             entry = Entry(meaning=_dictionaryapi(word))
-    except (requests.RequestException, ValueError, KeyError, IndexError, TypeError):
+    except requests.RequestException:
+        failed = True
+    except Exception:  # unexpected JSON shape: treat as "not found", never crash a caller
         entry = Entry()
     if entry.meaning:
         return entry
     try:
         meaning = _wiktionary(word, lang)
-    except (requests.RequestException, ValueError, KeyError, IndexError, TypeError):
+    except requests.RequestException:
+        failed = True
+        meaning = ""
+    except Exception:
         meaning = ""
     if meaning:
         entry.meaning = meaning
+    entry.failed = failed and not entry.meaning
     return entry
 
 

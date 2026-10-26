@@ -13,6 +13,8 @@ from typing import Any, Optional
 import requests
 from PIL import Image
 
+from .cards import FIELDS as CARD_FIELDS, highlight, record_values  # noqa: F401  (highlight re-exported for callers/tests)
+
 _CSS = """.card { font-family: "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif;
  font-size: 24px; text-align: center; color: #222; background: #fff; }
 .word { font-size: 48px; }  .reading { color: #777; }
@@ -136,16 +138,7 @@ class AnkiConnect:
     def add_record(self, rec: dict) -> int:
         """Add a word-list entry (see store.Store) as the right kind of card."""
         kind = rec.get("kind", "word")
-        if kind == "grammar":
-            values = {"Pattern": rec["word"], "Meaning": rec.get("meaning", ""), "Sentence": highlight(rec.get("sentence", ""), rec.get("notes", "")),
-                      "Notes": rec.get("reading", ""), "Source": rec.get("source", "")}
-        elif kind == "sentence":
-            values = {"Sentence": rec["word"], "Translation": rec.get("meaning", ""), "Notes": rec.get("notes", ""),
-                      "Source": rec.get("source", "")}
-        else:
-            values = {"Word": rec["word"], "Reading": rec.get("reading", ""), "Meaning": rec.get("meaning", ""),
-                      "Sentence": highlight(rec.get("sentence", ""), rec["word"]), "Source": rec.get("source", "")}
-        return self.add_card(kind, values, image_path=rec.get("image") or None)
+        return self.add_card(kind, record_values(rec), image_path=rec.get("image") or None)
 
     def known_words(self) -> set[str]:
         """Every value of the first field across all notes in the deck."""
@@ -157,12 +150,3 @@ class AnkiConnect:
                 if first:
                     words.add(html.unescape(re.sub(r"<[^>]+>", "", first["value"])).strip())
         return words
-
-
-def highlight(sentence: str, word: str) -> str:
-    """HTML-escape a sentence and bold the first occurrence of the word."""
-    esc = html.escape(sentence, quote=False)
-    if not word or word not in sentence:
-        return esc
-    w = html.escape(word, quote=False)
-    return esc.replace(w, f"<b>{w}</b>", 1)

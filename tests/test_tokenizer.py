@@ -94,3 +94,21 @@ def test_offsets_and_dedupe_flag():
     assert [t.lemma for t in tokenize(raw, "ja")] == ["勇者", "魔王", "倒す", "辛い"]
     for t in tokenize("Nobody dared.  Enter it!", "en", dedupe=False):
         assert t.sentence[t.start:t.end] == t.surface
+# appended to tests after the fixes
+def test_split_sentences_keeps_ellipsis_and_quotes_together():
+    from wordmine.tokenizer import split_sentences
+    assert split_sentences("そんな…ことはない。", "ja") == ["そんな…ことはない。"]
+    assert split_sentences("待って……くれ！", "ja") == ["待って……くれ！"]
+    assert split_sentences("「行くぞ」と言った。", "ja") == ["「行くぞ」と言った。"]
+    assert split_sentences("「行くぞ。」と彼は言った。", "ja") == ["「行くぞ。」", "と彼は言った。"]
+    assert split_sentences("本当か！？嘘だろ。", "ja") == ["本当か！？", "嘘だろ。"]
+    assert split_sentences("一つ。二つ！三つ？", "ja") == ["一つ。", "二つ！", "三つ？"]
+    assert split_sentences("「おい」「なんだ」", "ja") == ["「おい」", "「なんだ」"]
+
+
+def test_japanese_offsets_survive_kept_spaces():
+    raw = "魔王 Lv 5 の城に入った。"
+    toks = tokenize(raw, "ja", dedupe=False)
+    for t in toks:
+        assert t.sentence[t.start:t.end] == t.surface, (t.surface, t.start, t.end, t.sentence)
+    assert "城" in [t.lemma for t in toks] and "入る" in [t.lemma for t in toks]

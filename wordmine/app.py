@@ -39,7 +39,7 @@ LANGS = [
     ("zh-tw", "Chinese (traditional)"), ("ko", "Korean"), ("de", "German"),
     ("fr", "French"), ("es", "Spanish"), ("it", "Italian"), ("pt", "Portuguese"),
     ("ru", "Russian"), ("nl", "Dutch"), ("pl", "Polish"), ("sv", "Swedish"),
-    ("tr", "Turkish"), ("vi", "Vietnamese"), ("th", "Thai"),
+    ("tr", "Turkish"), ("vi", "Vietnamese"), ("th", "Thai"), ("other", "Other (type a Tesseract code)…"),
 ]
 MODES = [("game", "Game"), ("vn", "Visual novel"), ("manga", "Manga / comics"), ("book", "Book / article")]
 # Presets applied when you switch mode. Any setting can still be changed in Settings.
@@ -59,6 +59,7 @@ ORIENTATIONS = [("auto", "Auto"), ("horizontal", "Horizontal"), ("vertical", "Ve
 CONTEXTS = [("sentence", "Sentence with the word"), ("full", "Everything captured"), ("none", "No context")]
 SCREENSHOTS = [("off", "No screenshot"), ("region", "Text box / bubble only"), ("full", "Whole screen")]
 AI_CHECKS = [("off", "Off"), ("ambiguous", "Ambiguous words only"), ("always", "Every word")]
+HOVER_MODIFIERS = [("", "Whenever the mouse rests on a word"), ("alt", "Only while holding Alt"), ("ctrl", "Only while holding Ctrl"), ("shift", "Only while holding Shift")]
 ENGINES = [("tesseract", "Tesseract (any language)"), ("manga_ocr", "manga-ocr (Japanese, best quality)")]
 STATUS_LABELS = {"new": "new", "learning": "learning", "known": "known"}
 
@@ -148,6 +149,18 @@ class Tooltip:
         except tk.TclError:
             return False
 
+    def overlaps(self, region: Optional[dict]) -> bool:
+        """Does the popup cover part of the capture region? (It would show up in the OCR.)"""
+        if not self.win or not region:
+            return False
+        try:
+            wx, wy = self.win.winfo_rootx(), self.win.winfo_rooty()
+            ww, wh = self.win.winfo_width(), self.win.winfo_height()
+        except tk.TclError:
+            return False
+        return (wx < region["left"] + region["width"] and wx + ww > region["left"]
+                and wy < region["top"] + region["height"] and wy + wh > region["top"])
+
     def show(self, key, lines: list[tuple[str, str]], x: int, y: int, hint: str, avoid: Optional[tuple] = None, can_save: bool = True):
         if self.win is None:
             self.win = tk.Toplevel(self.root)
@@ -233,7 +246,7 @@ class App:
         self.store = Store()
         self.anki = AnkiConnect(cfg["anki_connect_url"], cfg["deck"], cfg["note_type"],
                                 {"grammar": cfg["note_type_grammar"], "sentence": cfg["note_type_sentence"]})
-        self.dictionary = Dictionary(cfg)
+        self.dictionary = Dictionary(cfg, load_jmdict=False)  # the offline index is built in the background below
         self.engine = None
         self.engine_lock = threading.Lock()
         self.q: queue.Queue = queue.Queue()
@@ -242,6 +255,8 @@ class App:
         self.saved_count = 0
         self._auto_prev: Optional[bytes] = None
         self._auto_done: Optional[bytes] = None
+        self._selecting = False
+        self._pending_capture: Optional[tuple] = None
         self._clip_last: Optional[str] = None
         self._preview_photo = None
         self._anki_warned = False
@@ -250,6 +265,8 @@ class App:
         self.hovered: Optional[Token] = None
         self._hover_seen = 0.0
         self._win_tip_key = None
+        self._modifier_down = False
+        self._prev_lang = cfg["lang"]
 
         self.root = tk.Tk()
         self.root.title("WordMine")
@@ -272,10 +289,11 @@ class App:
         self.root.after(500, self._clipboard_tick)
         self.root.after(100, self._hover_tick)
         if self.cfg.get("region"):
-            self.status("Region remembered. Reading starts when the text changes; hover a word to see it. Ctrl+Alt+S to pick a new region.")
+            self.status(f"Region remembered. Reading starts when the text changes; hover a word to see it. {self.cfg['hotkey_select_region']} picks a new region.")
         else:
-            self.status("Step 1: click 'Select region' and drag a box over the text in your game, manga or book.")
+            self.status("Step 1: click '1. Select region' and drag a box over the text in your game, manga or book.")
         threading.Thread(target=self._startup_checks, daemon=True).start()
+        self._load_jmdict_bg()
 
     # ------------------------------------------------------------------ setup
     def _build_vars(self):
@@ -287,6 +305,7 @@ class App:
         self.v_clip = tk.BooleanVar(value=c["watch_clipboard"])
         self.v_hide_known = tk.BooleanVar(value=c["hide_known"])
         self.v_topmost = tk.BooleanVar(value=c["stay_on_top"])
+        self.v_autosend = tk.BooleanVar(value=c["anki_auto_send"])
 
         def bind(var, key, after=None):
             def cb(*_):
@@ -302,9 +321,10 @@ class App:
         bind(self.v_lang, "lang", self._on_lang)
         bind(self.v_hover, "hover_mode", lambda v: (self.tooltip.hide() if not v else None))
         bind(self.v_auto, "auto", self._on_auto)
-        bind(self.v_clip, "watch_clipboard")
+        bind(self.v_clip, "watch_clipboard", self._on_clip)
         bind(self.v_hide_known, "hide_known", lambda _v: self.refresh_words())
         bind(self.v_topmost, "stay_on_top", lambda _v: self._apply_topmost())
+        bind(self.v_autosend, "anki_auto_send")
 
     def _build_ui(self):
         root = self.root
@@ -478,6 +498,9 @@ class App:
         mb.configure(menu=menu)
         mb.pack(side="left", padx=3)
         Hint(mb, "Get your words out: a TSV Anki imports directly, a CSV for spreadsheets, or plain text for anywhere else.")
+        cb = ttk.Checkbutton(row, text="Also send new words to Anki automatically", variable=self.v_autosend)
+        cb.pack(side="left", padx=(12, 3))
+        Hint(cb, "Off: words collect here until you press 'Send to Anki' (or export). On: each save also creates the card right away when Anki is open.")
         ttk.Label(row, text="Status:").pack(side="left", padx=(12, 2))
         for st in ("new", "learning", "known"):
             ttk.Button(row, text=st, width=8, command=lambda s=st: self.set_status(s)).pack(side="left", padx=1)
@@ -509,7 +532,7 @@ class App:
         text.insert("end", f"{c['hotkey_select_region']}   select region        {c['hotkey_capture']}   read now\n"
                            f"{c['hotkey_snip']}   snip (read anything once)        {c['hotkey_toggle_auto']}   toggle Auto\n"
                            f"{c['hotkey_add_hovered']}   save the word under the mouse\n"
-                           "Enter = save selected words, Delete = mark known, double-click = edit.  Hotkeys can be changed in config.json.\n\n")
+                           "Enter = save selected words, Delete = mark known, double-click = edit.  Change hotkeys in Settings → Hotkeys.\n\n")
         text.insert("end", "Manga: use Snip on each bubble. Visual novels: with Textractor, turn on Clipboard.  Books: select the page area, "
                            "or copy text with Clipboard on.\n\n")
         text.tag_configure("h", font=("TkDefaultFont", 12, "bold"))
@@ -545,6 +568,34 @@ class App:
             self._hotkeys.start()
         except Exception as exc:  # pragma: no cover
             self.status(f"Could not register hotkeys: {exc}")
+        # Track the hover modifier key (Alt/Ctrl/Shift) so the popup can be
+        # limited to "only while holding it".
+        try:
+            mods = {
+                "alt": {keyboard.Key.alt, keyboard.Key.alt_l, keyboard.Key.alt_r, getattr(keyboard.Key, "alt_gr", keyboard.Key.alt)},
+                "ctrl": {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r},
+                "shift": {keyboard.Key.shift, keyboard.Key.shift_l, keyboard.Key.shift_r},
+            }
+
+            def on_press(key):
+                if key in mods.get(self.cfg.get("hover_modifier", ""), set()):
+                    self._modifier_down = True
+
+            def on_release(key):
+                if key in mods.get(self.cfg.get("hover_modifier", ""), set()):
+                    self._modifier_down = False
+
+            self._mod_listener = keyboard.Listener(on_press=on_press, on_release=on_release)
+            self._mod_listener.daemon = True
+            self._mod_listener.start()
+        except Exception:  # pragma: no cover
+            pass
+
+    def _load_jmdict_bg(self):
+        if not self.cfg.get("jmdict_path"):
+            return
+        self.status("Building the offline dictionary index (one time, can take a minute)… online lookups are used meanwhile.")
+        self.dictionary.load_jmdict_async(lambda err: self.q.put(("status", err or "Offline dictionary ready: hover answers are instant now.")))
 
     def _startup_checks(self):
         notes = []
@@ -553,7 +604,7 @@ class App:
                 notes.append(f"Japanese analyser: {tagger_dictionary()}")
             except RuntimeError as exc:
                 notes.append(str(exc))
-            notes.append("offline dictionary loaded" if self.dictionary.jmdict else (self.dictionary.jmdict_error or "online dictionary (jisho.org)"))
+            notes.append("offline dictionary configured" if self.cfg.get("jmdict_path") else "online dictionary (jisho.org)")
         notes.append("Anki connected" if self.anki.available() else "Anki not open (words go to your list)")
         self.q.put(("status_append", " | ".join(notes)))
 
@@ -564,10 +615,35 @@ class App:
         cfgmod.save(self.cfg)
         self.status(MODE_HINTS.get(mode, ""))
 
-    def _on_lang(self, _lang: str):
+    def _on_lang(self, lang: str):
+        if lang == "other":
+            code = simpledialog.askstring(
+                "Language", "Tesseract language code for the text, e.g. ind (Indonesian), ara (Arabic), hin (Hindi), "
+                "ell (Greek), ces (Czech), ukr (Ukrainian).\nThe matching language pack must be installed with Tesseract.",
+                parent=self.root)
+            code = (code or "").strip() or getattr(self, "_prev_lang", "ja")
+            self.cfg["lang"] = code
+            if code != getattr(self, "_prev_lang", ""):
+                self.cfg["tesseract_lang"] = code if code not in dict(LANGS) else ""
+            cfgmod.save(self.cfg)
+            # Tk does not fire a variable's trace from inside that trace, so update the box afterwards.
+            self.root.after(0, lambda: self.v_lang.set(code))
+            lang = code
+        elif self.cfg.get("tesseract_lang") == self._prev_lang and self._prev_lang not in dict(LANGS):
+            self.cfg["tesseract_lang"] = ""  # leaving a typed code: drop the override it set
+            cfgmod.save(self.cfg)
+        self._prev_lang = lang
         with self.engine_lock:
             self.engine = None  # rebuilt with the new language on next OCR
         self.refresh_words()
+
+    def _on_clip(self, on: bool):
+        if on:
+            try:
+                self._clip_last = self.root.clipboard_get()  # ignore what is already there
+            except tk.TclError:
+                self._clip_last = ""
+            self.status("Clipboard watching on: copy text in the game, texthooker or reader and it appears here.")
 
     def _on_auto(self, on: bool):
         if on and not self.cfg.get("region"):
@@ -582,13 +658,14 @@ class App:
         self.anki.reset()
         with self.engine_lock:
             self.engine = None
-        if (c.get("jmdict_path") or "") != getattr(self.dictionary, "_loaded_path", c.get("jmdict_path")):
-            pass
         self.dictionary.save()
-        self.dictionary = Dictionary(c)
-        if self.dictionary.jmdict_error:
-            self.status(self.dictionary.jmdict_error)
+        self.dictionary = Dictionary(c, load_jmdict=False)
+        self._load_jmdict_bg()
         self._apply_topmost()
+        if self.v_autosend.get() != bool(c["anki_auto_send"]):
+            self.v_autosend.set(bool(c["anki_auto_send"]))
+        if self.v_topmost.get() != bool(c["stay_on_top"]):
+            self.v_topmost.set(bool(c["stay_on_top"]))
         self.refresh_words()
 
     def open_settings(self):
@@ -604,7 +681,11 @@ class App:
 
     def select_region(self):
         self.tooltip.hide()
-        region = RegionSelector(self.root).select()
+        self._selecting = True
+        try:
+            region = RegionSelector(self.root).select()
+        finally:
+            self._selecting = False
         if region:
             self.cfg["region"] = region
             cfgmod.save(self.cfg)
@@ -616,7 +697,11 @@ class App:
     def snip(self):
         """Drag over a speech bubble or paragraph and read it right away."""
         self.tooltip.hide()
-        region = RegionSelector(self.root).select()
+        self._selecting = True
+        try:
+            region = RegionSelector(self.root).select()
+        finally:
+            self._selecting = False
         if region:
             self.capture(region=region, source="snip")
 
@@ -626,6 +711,9 @@ class App:
             self.status("No region yet: click '1. Select region' and drag over the text.")
             return
         if self.busy:
+            if source != "screen" or self._pending_capture is None:
+                self._pending_capture = (region, source)  # read it as soon as the current read finishes
+            self.status("Still reading the previous text; this one is queued.")
             return
         try:
             full, crop = grab_game_and_region(region)
@@ -687,6 +775,7 @@ class App:
             self.q.put(("error", f"Reading failed: {exc}"))
         finally:
             self.busy = False
+            self.q.put(("ocr_done",))
 
     def _analyze(self, text, boxes, origin, crop, full, source) -> Capture:
         lang = self.cfg["lang"]
@@ -817,7 +906,7 @@ class App:
             sentence = overrides["sentence"] if overrides and "sentence" in overrides else self._card_context(token)
             source = self.cfg["source_name"] or (cap.source if cap else "")
             image_path = self._save_image(self._card_image(), word)
-            rec = self.store.add(word, reading, meaning, sentence, source, image=image_path, lang=lang)
+            rec = self.store.add(word, reading, meaning, sentence, source, image=image_path, lang=lang, surface=token.surface)
             if token.lemma != word:
                 self.store.mark_known(token.lemma)
             self._maybe_send(rec)
@@ -844,7 +933,8 @@ class App:
 
         def job():
             for h in hits:
-                if self.store.has(h.name, kind="grammar") and self.store.has(h.sentence, kind="sentence"):
+                if self.store.has(h.name, kind="grammar", sentence=h.sentence):
+                    self.q.put(("status", f"{h.name} with this sentence is already in your list."))
                     continue
                 meaning = html.escape(h.meaning) + (f" <i>({h.level})</i>" if h.level else "")
                 rec = self.store.add(h.name, "", meaning, h.sentence, self.cfg["source_name"] or self.cap.source,
@@ -980,6 +1070,7 @@ class App:
             return
         if kind == "copy":
             text = self.store.export_text(recs)
+            self._clip_last = text  # so clipboard watching does not read our own export
             self.root.clipboard_clear()
             self.root.clipboard_append(text)
             self.status(f"Copied {len(recs)} word(s) to the clipboard.")
@@ -989,8 +1080,24 @@ class App:
                                             filetypes=[("Anki import (TSV)", "*.tsv")] if kind == "tsv" else [("CSV", "*.csv")])
         if not path:
             return
-        n = self.store.export_tsv(path, recs) if kind == "tsv" else self.store.export_csv(path, recs)
-        self.status(f"Exported {n} entries to {path}" + (". In Anki: File > Import, pick the WordMine note type." if kind == "tsv" else ""))
+        if kind == "csv":
+            n = self.store.export_csv(path, recs)
+            self.status(f"Exported {n} entries to {path}")
+            return
+        base = os.path.splitext(path)[0]
+        media = f"{base}_media"
+        done = []
+        for k, suffix, note_type in (("word", "", self.cfg["note_type"]), ("grammar", "_grammar", self.cfg["note_type_grammar"]),
+                                     ("sentence", "_sentences", self.cfg["note_type_sentence"])):
+            if not any(r.get("kind", "word") == k for r in recs):
+                continue
+            target = path if k == "word" else f"{base}{suffix}.tsv"
+            n = self.store.export_tsv(target, recs, kind=k, note_type=note_type, deck=self.cfg["deck"], media_dir=media)
+            done.append(f"{n} {k}{'s' if n != 1 else ''} → {os.path.basename(target)}")
+        hint = (" In Anki: press 'Send to Anki' once first (it creates the WordMine note types), then File > Import this file;"
+                f" copy the images from {os.path.basename(media)} into Anki's collection.media folder." if any(r.get("image") for r in recs)
+                else " In Anki: press 'Send to Anki' once first (it creates the WordMine note types), then File > Import this file.")
+        self.status("Exported " + ", ".join(done) + "." + hint)
 
     def set_status(self, status: str):
         for rec in self._selected_records():
@@ -1098,6 +1205,11 @@ class App:
                 msg[1]()
             except tk.TclError:
                 pass  # the window it targeted is gone
+        elif kind == "ocr_done":
+            if self._pending_capture and not self.busy:
+                region, source = self._pending_capture
+                self._pending_capture = None
+                self.capture(region=region, source=source)
         elif kind == "hotkey":
             {"capture": self.capture, "select": self.select_region, "snip": self.snip, "save_hovered": self.save_hovered,
              "auto": lambda: self.v_auto.set(not self.v_auto.get())}[msg[1]]()
@@ -1152,7 +1264,8 @@ class App:
     def _hover_tick(self):
         delay = 90
         try:
-            if self.v_hover.get() and self.cap and self.cap.hover:
+            modifier_ok = not self.cfg.get("hover_modifier") or self._modifier_down or self.tooltip.visible()
+            if self.v_hover.get() and self.cap and self.cap.hover and modifier_ok:
                 x, y = self.root.winfo_pointerxy()
                 if self.tooltip.contains(x, y):
                     self._hover_seen = time.time()
@@ -1160,7 +1273,8 @@ class App:
                     spans = self.cap.hover.at(x, y)
                     if spans:
                         self._show_spans(spans, x, y, self.cap.hover)
-                    elif self.tooltip.visible() and time.time() - self._hover_seen > float(self.cfg.get("hover_hide_delay", 0.4)):
+                    elif (self.tooltip.visible() and self.tooltip.key and self.tooltip.key[0] == "screen"
+                          and time.time() - self._hover_seen > float(self.cfg.get("hover_hide_delay", 0.4))):
                         self.tooltip.hide()
                         self.hovered = None
             elif self.tooltip.visible() and self.tooltip.key and self.tooltip.key[0] == "screen":
@@ -1232,12 +1346,17 @@ class App:
 
     def _auto_tick(self):
         interval = max(0.3, float(self.cfg.get("auto_interval", 1.0)))
-        if self.v_auto.get() and self.cfg.get("region") and not self.busy and not self.tooltip.visible():
+        region = self.cfg.get("region")
+        snipping = self.cap is not None and self.cap.source == "snip"  # a snipped bubble stays until you read the region again
+        if (self.v_auto.get() and region and not self.busy and not self._selecting and not snipping
+                and not self.tooltip.overlaps(region)):
             try:
-                fp = fingerprint(grab(self.cfg["region"]))
-                stable = not changed(fp, self._auto_prev)
-                if stable and changed(fp, self._auto_done):
+                fp = fingerprint(grab(region))
+                stable = not changed(self._auto_prev, fp)
+                if stable and changed(self._auto_done, fp):
                     self._auto_done = fp
+                    self.tooltip.hide()  # the text changed: whatever the popup showed is gone
+                    self.hovered = None
                     self.capture(source="screen")
                 self._auto_prev = fp
             except Exception as exc:
@@ -1250,8 +1369,8 @@ class App:
                 text = self.root.clipboard_get()
             except tk.TclError:
                 text = None
-            if text is not None and self._clip_last is None:
-                self._clip_last = text  # ignore whatever was already there when watching started
+            if self._clip_last is None:
+                self._clip_last = text or ""  # ignore whatever was already there when watching started
             elif text and text != self._clip_last and len(text) < 4000:
                 self._clip_last = text
                 self.busy = True
@@ -1410,7 +1529,9 @@ class SettingsDialog(tk.Toplevel):
         ttk.Entry(f, textvariable=var("ocr_scale"), width=10).grid(row=5, column=1, sticky="w", **pad)
         ttk.Label(f, text="Auto re-read interval (s)").grid(row=6, column=0, sticky="e", **pad)
         ttk.Entry(f, textvariable=var("auto_interval"), width=10).grid(row=6, column=1, sticky="w", **pad)
-        ttk.Checkbutton(f, text="Keep the WordMine window on top", variable=var("stay_on_top", tk.BooleanVar)).grid(row=7, column=0, columnspan=2, sticky="w", **pad)
+        ttk.Label(f, text="Word popup over the game").grid(row=7, column=0, sticky="e", **pad)
+        Choice(f, HOVER_MODIFIERS, var("hover_modifier"), width=30).grid(row=7, column=1, sticky="w", **pad)
+        ttk.Checkbutton(f, text="Keep the WordMine window on top", variable=var("stay_on_top", tk.BooleanVar)).grid(row=8, column=0, columnspan=2, sticky="w", **pad)
 
         f = section("Hotkeys")
         for i, (key, label) in enumerate([("hotkey_select_region", "Select region"), ("hotkey_capture", "Read now"), ("hotkey_snip", "Snip"),
@@ -1444,6 +1565,8 @@ class SettingsDialog(tk.Toplevel):
                     val = float(sval) if sval not in ("", "auto") else "auto"
                 except ValueError:
                     val = "auto"
+                if isinstance(val, float) and not 0.5 <= val <= 4:
+                    val = "auto"  # anything else is a typo; 0 would break reading entirely
             elif key == "auto_interval":
                 try:
                     val = float(val)
@@ -1533,10 +1656,11 @@ class EditDialog(tk.Toplevel):
     def do_ai(self):
         self.info.configure(text="Asking Claude…")
         t = self.token
+        reading = self.v_reading.get()  # read Tk state on the UI thread, not in the worker
 
         def job():
             try:
-                v = ai.check(t.sentence, t.surface, self.v_reading.get(), t.alt_readings, t.alt_lemmas,
+                v = ai.check(t.sentence, t.surface, reading, t.alt_readings, t.alt_lemmas,
                              self.app.cfg["lang"], self.app.cfg["ai_model"], self.app.cfg["anthropic_api_key"])
                 self.app.ui(lambda: self._set_ai(v))
             except ai.AIError as exc:

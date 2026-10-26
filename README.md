@@ -48,8 +48,9 @@ PDFs, even photos of a paper book. No per-game setup.
 
 ## Install (10 minutes)
 
-1. **Python 3.9+** — https://www.python.org/downloads/ (Windows: tick
-   *Add Python to PATH* in the installer).
+1. **Python 3.12, 3.13 or 3.14** — https://www.python.org/downloads/ (pick a
+   3.14.x or 3.13.x installer, *not* the newest 3.15: one of the Japanese
+   libraries has no 3.15 build yet). Windows: tick *Add Python to PATH*.
 2. **Tesseract OCR**
    - Windows: https://github.com/UB-Mannheim/tesseract/wiki — in the
      installer expand *Additional language data* and tick the languages you
@@ -60,8 +61,8 @@ PDFs, even photos of a paper book. No per-game setup.
    ZIP*, unzip) or `git clone https://github.com/henss2007-dot/making-stuff-for-fun`.
    - Windows: double-click **`setup.bat`** once (installs the Python
      packages and runs a check), then **`WordMine.bat`** to start.
-   - macOS/Linux: `pip install -r requirements.txt`, then `./wordmine.sh`
-     (or `python -m wordmine`).
+   - macOS/Linux: `python3 -m pip install -r requirements.txt`, then
+     `./wordmine.sh` (or `python3 -m wordmine`).
 4. **Anki** (optional, for flashcards): install the **AnkiConnect** add-on
    in Anki (*Tools → Add-ons → Get Add-ons…*, code `2055492159`) and restart
    Anki. Keep Anki open when you press *Send to Anki*.
@@ -73,7 +74,7 @@ missing and how to fix it (same as `python -m wordmine check`).
 
 | Want | Install | Then |
 |---|---|---|
-| Instant, offline Japanese dictionary (no internet needed, best hover experience) | download `jmdict-eng-*.json.zip` from https://github.com/scriptin/jmdict-simplified/releases | Settings → Dictionary & AI → Offline JMdict file |
+| Instant, offline Japanese dictionary (no internet needed, best hover experience) | download `jmdict-eng-*.json.zip` from https://github.com/scriptin/jmdict-simplified/releases | Settings → Dictionary & AI → Offline JMdict file. The first load builds an index in the background (about a minute); after that it is instant. |
 | Much better Japanese OCR (stylised fonts, furigana, manga) | `pip install manga-ocr` (downloads a ~400 MB model on first use) | Settings → Reading → OCR engine |
 | Better Japanese readings (full UniDic, ~1 GB) | `pip install unidic && python -m unidic download` | picked up automatically |
 | Chinese word splitting | `pip install jieba` | choose Chinese as the language |
@@ -98,8 +99,10 @@ missing and how to fix it (same as `python -m wordmine check`).
 
 **Mode: Manga.** Hover over a bubble, press `Ctrl+Alt+X` (**Snip**), drag over
 the bubble. Vertical text is detected automatically. Hover works over the
-snipped bubble; saved words get the bubble as the screenshot. For Japanese
-manga, `manga-ocr` is strongly recommended over Tesseract.
+snipped bubble; saved words get the bubble as the screenshot. While a snipped
+bubble is shown, Auto leaves it alone (press *Read now* to go back to the
+saved region). For Japanese manga, `manga-ocr` is strongly recommended over
+Tesseract.
 
 ### Books, articles, ebook readers
 
@@ -116,12 +119,14 @@ paper pages: **Open image / PDF…** in the Read tab.
 | **Read** | The captured text with a preview image. Hover words (yellow = not yet known, underlined = grammar), double-click to save. *Save sentence* and *Explain with AI*. |
 | **Words** | Every word of the capture with reading and type. Orange rows had an uncertain reading/split; the alternatives are listed. Enter saves, Delete marks known, *Merge* joins pieces of a compound. |
 | **Grammar** | Patterns found in the text with meaning and JLPT level, plus verb/adjective form breakdowns. *Save grammar card*. |
-| **My words** | Your list. *Send to Anki*, *Export…* (Anki TSV, CSV, plain text), status buttons, edit, delete, show the stored screenshot. |
+| **My words** | Your list. *Send to Anki*, *Export…* (Anki TSV, CSV, plain text), status buttons, edit, delete, show the stored screenshot. The switch *Also send new words to Anki automatically* decides whether saving a word also creates the card right away (off by default: words collect here until you press *Send to Anki*). |
 | **Help** | Getting started, hotkeys, *Run setup check*. |
 
 **Settings…** (top right): what goes on the card (sentence / everything /
 nothing; screenshot of the whole screen / text box only / none), Anki deck
-and auto-send, dictionaries and AI, OCR engine and text direction, hotkeys.
+and auto-send, dictionaries and AI, OCR engine and text direction, whether
+the popup appears whenever the mouse rests on a word or only while you hold
+Alt/Ctrl/Shift, hotkeys.
 
 ### Hotkeys
 
@@ -151,14 +156,24 @@ The deck (default *WordMine*) **starts empty and fills with what you save**;
 nothing is pre-imported. Edit the card templates in Anki as you like; WordMine
 only fills the fields that exist. To hide words you already know, use
 *Import known words from Anki* (reads your deck) or put a word list, one per
-line, in `~/.wordmine/known_words.txt`. With Anki closed, the TSV export
-imports through *File → Import* in Anki.
+line, in `~/.wordmine/known_words.txt`.
+
+**Importing the TSV instead of using Send to Anki:** press *Send to Anki*
+once with Anki open so the WordMine note types exist (or create them by
+hand), then in Anki *File → Import* the `.tsv`; the file names its note type
+and deck and its columns match the fields. Grammar and sentence entries go
+into separate `…_grammar.tsv` / `…_sentences.tsv` files. Screenshots are
+copied into a `…_media` folder next to the file: move those PNGs into Anki's
+`collection.media` folder (Tools → Add-ons → *View files*, one level up) and
+the images show on the cards.
 
 ## Languages
 
-- **Reading the screen:** any language Tesseract has data for (100+); the
-  Language box lists the common ones, and `tesseract_lang` in Settings takes
-  any code or combination such as `jpn+eng`.
+- **Reading the screen:** any language Tesseract has data for (100+). The
+  Language box lists the common ones; pick *Other…* to type any Tesseract
+  code (`ind`, `ara`, `hin`, …) whose language pack you installed, and
+  *Settings → Reading → Tesseract language(s)* takes combinations such as
+  `jpn+eng`.
 - **Word splitting:** Japanese gets full analysis (dictionary forms,
   readings, alternatives, grammar); Chinese uses jieba; every other language
   is split on word boundaries (no lemmatiser, so *ran* and *running* are
@@ -202,6 +217,9 @@ python -m pytest tests                   # run the test suite
   `3` for tiny fonts, or switch to `manga_ocr` for Japanese.
 - **Hover popup appears over the text box:** it moves above the region when
   it would cover it; make the region a little tighter if it still overlaps.
+- **Popups get in the way while playing:** Settings → Reading → *Word popup
+  over the game* → only while holding Alt (or Ctrl/Shift), or turn *Hover*
+  off and use the Read tab.
 - **"Cannot reach Anki":** Anki must be open with AnkiConnect installed. Your
   words are safe in the list; press *Send to Anki* later or export a TSV.
 - **Linux:** hotkeys need X11 (not Wayland) and Tk needs `python3-tk`.

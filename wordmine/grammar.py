@@ -27,12 +27,14 @@ class GrammarHit:
     sentence: str
     category: str = "pattern"   # "pattern" or "form" (inflection breakdown)
     notes: list[str] = field(default_factory=list)
+    sent_index: int = 0         # which sentence of the analysed text
 
 
 @dataclass
 class _Tok:
     s: str      # surface
-    l: str      # lemma (orthBase)
+    l: str      # written dictionary form (orthBase): 読んだ -> だ
+    lem: str    # UniDic lemma: the same だ is lemma た (voiced past), unlike the copula だ
     p1: str
     p2: str
     cf: str     # conjugation form
@@ -50,9 +52,15 @@ def _tokens(sentence: str) -> list[_Tok]:
         lemma = getattr(f, "orthBase", None) or getattr(f, "lemma", None) or n.surface
         if "-" in lemma and lemma.split("-", 1)[1].isascii():
             lemma = lemma.split("-", 1)[0]
-        out.append(_Tok(n.surface, lemma, getattr(f, "pos1", "") or "", getattr(f, "pos2", "") or "",
-                        getattr(f, "cForm", "") or "", pos, pos + len(n.surface)))
-        pos += len(n.surface)
+        lem = getattr(f, "lemma", None) or lemma
+        if "-" in lem and lem.split("-", 1)[1].isascii():
+            lem = lem.split("-", 1)[0]
+        start = sentence.find(n.surface, pos)
+        if start < 0:
+            start = pos
+        out.append(_Tok(n.surface, lemma, lem, getattr(f, "pos1", "") or "", getattr(f, "pos2", "") or "",
+                        getattr(f, "cForm", "") or "", start, start + len(n.surface)))
+        pos = start + len(n.surface)
     return out
 
 
@@ -71,7 +79,7 @@ def _set(v):
 def _ok(tok: _Tok, step) -> bool:
     if step["s"] is not None and tok.s not in step["s"]:
         return False
-    if step["l"] is not None and tok.l not in step["l"]:
+    if step["l"] is not None and tok.l not in step["l"] and tok.lem not in step["l"]:
         return False
     if step["p1"] is not None and tok.p1 not in step["p1"]:
         return False
@@ -129,7 +137,9 @@ RULES = [
     ("〜すぎる", "too much / over-…", "N4", [st(l=("すぎる", "過ぎる"), p1="動詞")], st(p1=VERB_ADJ)),
     ("〜やすい", "easy to …", "N4", [st(l="やすい")], st(p1=VERB)),
     ("〜にくい", "hard to …", "N4", [st(l="にくい")], st(p1=VERB)),
-    ("〜そうだ (appearance)", "looks like / seems about to …", "N4", [st(l="そう", p2="助動詞語幹")], None),
+    # UniDic tells the two そう apart by lemma: そう-様態 (appearance) vs そう-伝聞 (hearsay).
+    ("〜そうだ (appearance)", "looks like / seems about to …", "N4", [st(l="そう-様態", p2="助動詞語幹")], None),
+    ("〜そうだ (hearsay)", "I hear that … / they say …", "N4", [st(l="そう-伝聞", p2="助動詞語幹")], None),
     ("〜らしい", "seems that / I hear that …", "N4", [st(l="らしい", p1="助動詞")], None),
     ("〜みたい", "looks like / is like …", "N4", [st(l="みたい")], None),
     ("〜かもしれない", "might / maybe …", "N4", [st(l="か"), st(l="も"), st(l=("しれる", "知れる")), NAI], None),
@@ -167,10 +177,11 @@ RULES = [
     ("〜まま", "as it is / leaving … unchanged", "N3", [st(l=("まま", "儘"))], None),
     ("〜によると", "according to …", "N3", [st(l="に"), st(l=("よる", "拠る")), st(l="と")], None),
     ("〜について", "about / concerning …", "N4", [st(l="に"), st(l=("つく", "就く"), s="つい"), st(l="て")], None),
-    ("〜として", "as … / in the role of …", "N3", [st(l="と"), st(l="する", s="し"), st(l="て")], None),
+    ("〜として", "as … / in the role of …", "N3", [st(l="と"), st(l="する", s="し"), st(l="て")], st(p1=("名詞", "代名詞"))),
+    ("〜ようとする", "try to … / be about to …", "N3", [st(l="と"), st(l="する")], st(cf="意志推量形")),
     ("〜に行く / 〜に来る", "go / come (somewhere) to do …", "N5", [st(l="に"), st(l=("行く", "来る", "いく", "くる"))], st(p1=VERB, cf="連用形")),
     ("〜時", "when …", "N5", [RENTAI, st(l=("時", "とき"))], None),
-    ("〜間に", "while / during …", "N3", [st(l=("間", "あいだ")), st(l="に")], None),
+    ("〜間に", "while / during …", "N3", [st(l=("間", "あいだ")), st(l="に")], st(cf="連体形")),
     ("〜うちに", "while … (before the situation changes)", "N3", [st(l=("うち", "内")), st(l="に")], None),
     ("〜わけ", "it means that … / the reason is …", "N3", [RENTAI, st(l=("わけ", "訳"))], None),
     ("〜んだ / 〜のだ", "explanatory の: it's that …", "N4", [st(l="の", s=("ん", "の"), p2="準体助詞"), st(l=("だ", "です"))], None),
@@ -189,6 +200,8 @@ _AUX_MEANING = {
     "らしい": "seems", "べし": "should", "だ": "copula (is)", "です": "polite copula (is)",
     "ます意志推量形": "polite volitional (let's)", "た仮定形": "conditional (if / when)",
 }
+# Helpers that attach straight to a verb stem (食べ+すぎる), without て.
+_COMPOUND_HELPERS = {"始める", "続ける", "終わる", "すぎる", "過ぎる"}
 _HELPER_VERBS = {
     "いる": "ongoing / state (ている)", "しまう": "completion or regret (てしまう)", "おく": "in advance (ておく)",
     "みる": "try (てみる)", "くる": "toward speaker / begin (てくる)", "来る": "toward speaker / begin (てくる)",
@@ -203,11 +216,12 @@ _FORM_LABEL = {
 
 
 def _inflection_hits(toks: list[_Tok], sentence: str) -> list[GrammarHit]:
-    hits = []
+    hits: list[GrammarHit] = []
+    consumed: set[int] = set()   # helper verbs already explained as part of a chain
     i = 0
     while i < len(toks):
         t = toks[i]
-        if t.p1 not in VERB_ADJ or t.p2 == "非自立可能" and i > 0 and toks[i - 1].l in ("て", "で"):
+        if i in consumed or t.p1 not in VERB_ADJ:
             i += 1
             continue
         notes = []
@@ -217,20 +231,26 @@ def _inflection_hits(toks: list[_Tok], sentence: str) -> list[GrammarHit]:
         j = i + 1
         while j < len(toks):
             n = toks[j]
+            prev = toks[j - 1]
+            after_te = prev.p1 == "助詞" and prev.l in ("て", "で")
             if n.p1 == "助動詞":
-                key = n.l + n.cf.split("-")[0]
-                notes.append(_AUX_MEANING.get(key) or _AUX_MEANING.get(n.l) or n.l)
-            elif n.p1 == "助詞" and n.l in ("て", "で") and j + 1 < len(toks) and toks[j + 1].l in _HELPER_VERBS:
+                key = n.lem + n.cf.split("-")[0]
+                notes.append(_AUX_MEANING.get(key) or _AUX_MEANING.get(n.lem) or _AUX_MEANING.get(n.l) or n.l)
+            elif n.p1 == "助詞" and n.l in ("て", "で") and j + 1 < len(toks) and toks[j + 1].p1 == "動詞" and toks[j + 1].l in _HELPER_VERBS:
                 pass  # explained by the helper verb that follows
-            elif n.p1 == "動詞" and n.p2 == "非自立可能" and n.l in _HELPER_VERBS:
+            elif n.p1 == "動詞" and n.l in _HELPER_VERBS and after_te:
                 notes.append(_HELPER_VERBS[n.l])
-                sub = _FORM_LABEL.get(n.cf.split("-")[0])
-                if sub:
-                    notes.append(sub)
+                sub_form = _FORM_LABEL.get(n.cf.split("-")[0])
+                if sub_form:
+                    notes.append(sub_form)
+            elif n.p1 == "動詞" and n.l in _COMPOUND_HELPERS and (
+                    (prev.p1 == "動詞" and prev.cf.startswith("連用形")) or (prev.p1 == "形容詞" and prev.cf.startswith("語幹"))):
+                notes.append(_HELPER_VERBS[n.l])  # 食べ+すぎる, 高+すぎる, 勉強し+始める
             elif n.p1 == "接尾辞" and n.l in ("やすい", "にくい", "そう"):
                 notes.append({"やすい": "easy to", "にくい": "hard to", "そう": "looks like"}[n.l])
             else:
                 break
+            consumed.add(j)
             j += 1
         if notes:
             text = sentence[t.start:toks[j - 1].end]
@@ -282,6 +302,8 @@ def analyze(text: str, lang: str) -> list[GrammarHit]:
     if lang != "ja" or not text.strip():
         return []
     out = []
-    for sentence in split_sentences(text, "ja"):
-        out.extend(analyze_sentence(sentence))
+    for si, sentence in enumerate(split_sentences(text, "ja")):
+        for h in analyze_sentence(sentence):
+            h.sent_index = si
+            out.append(h)
     return out

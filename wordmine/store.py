@@ -18,7 +18,6 @@ from .config import APP_DIR
 
 KNOWN_FILE = "known_words.txt"
 WORDS_FILE = "words.json"
-FIELDS = ["word", "reading", "meaning", "sentence", "source", "added"]
 STATUSES = ("new", "learning", "known")
 
 
@@ -62,12 +61,13 @@ class Store:
 
     # ------------------------------------------------------------- word list
     def add(self, word: str, reading: str = "", meaning: str = "", sentence: str = "", source: str = "",
-            image: str = "", lang: str = "", kind: str = "word", notes: str = "") -> dict:
+            image: str = "", lang: str = "", kind: str = "word", notes: str = "", surface: str = "") -> dict:
         """Append an entry to the word list and return it. Marks the word known."""
         with self.lock:
             rec = {
                 "id": self._next_id, "kind": kind, "word": word, "reading": reading, "meaning": meaning,
                 "sentence": sentence, "source": source, "image": image, "lang": lang, "notes": notes,
+                "surface": surface or word,
                 "added": dt.datetime.now().isoformat(timespec="seconds"), "status": "new", "anki": False,
             }
             self._next_id += 1
@@ -77,9 +77,10 @@ class Store:
             self.mark_known(word)
         return rec
 
-    def has(self, word: str, kind: str = "word") -> bool:
+    def has(self, word: str, kind: str = "word", sentence: Optional[str] = None) -> bool:
         with self.lock:
-            return any(w["word"] == word and w.get("kind", "word") == kind for w in self.words)
+            return any(w["word"] == word and w.get("kind", "word") == kind and (sentence is None or w.get("sentence") == sentence)
+                       for w in self.words)
 
     def get(self, rec_id: int) -> Optional[dict]:
         with self.lock:
@@ -110,14 +111,37 @@ class Store:
         os.replace(tmp, self.words_path)
 
     # --------------------------------------------------------------- exports
-    def export_tsv(self, path: Path, records: Optional[Iterable[dict]] = None) -> int:
-        """Anki-importable TSV (File > Import in Anki maps the columns)."""
-        recs = list(records if records is not None else self.words)
+    def export_tsv(self, path: Path, records: Optional[Iterable[dict]] = None, kind: str = "word",
+                   note_type: str = "WordMine", deck: str = "WordMine", media_dir: Optional[Path] = None) -> int:
+        """Anki import file for one kind of card.
+
+        The column labels are the note type's field names (Anki matches them
+        case-sensitively), and #notetype / #deck tell Anki where it goes.
+        Screenshots are copied into media_dir and referenced with <img>; Anki
+        picks them up once that folder's files are in collection.media.
+        """
+        from .cards import FIELDS, record_values
+
+        recs = [r for r in (records if records is not None else self.words) if r.get("kind", "word") == kind]
+        fields = FIELDS[kind]
+        if media_dir is not None and any(r.get("image") for r in recs):
+            Path(media_dir).mkdir(parents=True, exist_ok=True)
         with Path(path).open("w", encoding="utf-8", newline="") as fh:
-            fh.write("#separator:tab\n#html:true\n#columns:" + "\t".join(FIELDS) + "\n")
-            w = csv.DictWriter(fh, fieldnames=FIELDS, delimiter="\t", extrasaction="ignore", quoting=csv.QUOTE_MINIMAL)
+            fh.write(f"#separator:tab\n#html:true\n#notetype:{note_type}\n#deck:{deck}\n#columns:" + "\t".join(fields) + "\n")
             for r in recs:
-                w.writerow({k: (r.get(k, "") or "").replace("\n", "<br>") for k in FIELDS})
+                values = record_values(r)
+                img = r.get("image") or ""
+                if img and media_dir is not None and Path(img).exists():
+                    import shutil
+                    name = Path(img).name
+                    try:
+                        shutil.copyfile(img, Path(media_dir) / name)
+                        values["Image"] = f'<img src="{name}">'
+                    except OSError:
+                        pass
+                # Plain tab-separated line, no csv quoting: Anki would keep the quote characters.
+                cells = [(values.get(k, "") or "").replace("\r", "").replace("\n", "<br>").replace("\t", " ") for k in fields]
+                fh.write("\t".join(cells) + "\n")
         return len(recs)
 
     def export_csv(self, path: Path, records: Optional[Iterable[dict]] = None) -> int:

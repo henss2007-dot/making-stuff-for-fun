@@ -1,14 +1,25 @@
 @echo off
 rem One-time setup on Windows: installs the Python packages WordMine needs and checks the rest.
 cd /d "%~dp0"
-where py >nul 2>nul && set PY=py -3
-if not defined PY set PY=python
-%PY% --version >nul 2>nul || (
-  echo Python was not found. Install it from https://www.python.org/downloads/ and tick "Add Python to PATH", then run this again.
+set PY=
+for %%v in (3.14 3.13 3.12 3.11 3.10 3.9) do (
+  if not defined PY py -%%v -c "print()" >nul 2>nul && set PY=py -%%v
+)
+if not defined PY (
+  py -3 -c "import sys; sys.exit(0 if sys.version_info >= (3, 15) else 1)" >nul 2>nul && (
+    echo Your Python is 3.15 or newer. One of the Japanese libraries has no build for it yet.
+    echo Please install Python 3.14 from https://www.python.org/downloads/ ^(tick "Add Python to PATH"^) and run this again.
+    pause
+    exit /b 1
+  )
+  python --version >nul 2>nul && set PY=python
+)
+if not defined PY (
+  echo Python was not found. Install Python 3.14 from https://www.python.org/downloads/ and tick "Add Python to PATH", then run this again.
   pause
   exit /b 1
 )
-echo Installing Python packages...
+echo Using: %PY%
 %PY% -m pip install --upgrade pip >nul
 %PY% -m pip install -r requirements.txt || (echo. & echo pip failed - see the messages above. & pause & exit /b 1)
 echo.
