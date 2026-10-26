@@ -1,3 +1,14 @@
+# making-stuff-for-fun
+
+Small projects, each in its own folder:
+
+| Folder | What it is |
+|---|---|
+| [`wordmine/`](#wordmine) | Mine vocabulary from games, manga and books on your screen into Anki (below) |
+| [`bookpress/`](bookpress/) | Write or paste text, add pictures, get a PDF that looks like a real printed book. Downloads for Windows, Mac and Linux on the [Releases page](https://github.com/henss2007-dot/making-stuff-for-fun/releases). |
+
+---
+
 # WordMine
 
 Read games, visual novels, manga and books in another language on your

@@ -1,0 +1,6 @@
+reportlab>=4.0
+Pillow>=10.0
+# Optional: nicer justified text with automatic hyphenation
+pyphen>=0.14
+# Optional: the fold-and-staple booklet output
+pypdf>=3.0

@@ -1,0 +1,610 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BookPress</title>
+<style>
+  :root {
+    --bg: #f3f0ea; --panel: #fffdf9; --ink: #1d1a16; --muted: #6b655c; --line: #d9d3c7;
+    --accent: #1f2a44; --accent-ink: #fff; --gold: #c9a96e; --ok: #2d7a46; --bad: #a23b2a; --set: #fff3d6;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--ink); display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: var(--accent); color: var(--accent-ink); flex-wrap: wrap; }
+  header h1 { font: 600 17px Georgia, "Times New Roman", serif; margin: 0 8px 0 0; letter-spacing: .5px; }
+  header h1 span { color: var(--gold); }
+  header .name { opacity: .8; font-size: 12px; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 30vw; }
+  header select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(0,0,0,.15); max-width: 220px; }
+  button, .btn { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid rgba(0,0,0,.15); background: #fff; color: var(--ink); cursor: pointer; text-decoration: none; display: inline-block; }
+  button:hover, .btn:hover { background: #f1ede4; }
+  button.primary { background: var(--gold); border-color: #a9884f; color: #1d1a16; font-weight: 600; }
+  button.primary:hover { background: #d9b97e; }
+  button.active { background: #e6dfd0; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { font-size: 13px; opacity: .9; min-width: 120px; text-align: right; }
+  #status.bad { color: #ffb4a6; }
+  main { flex: 1; display: grid; grid-template-columns: minmax(360px, 1fr) 6px minmax(300px, 1fr); min-height: 0; }
+  main.wide { grid-template-columns: 1fr 6px 0px; }
+  .pane { display: flex; flex-direction: column; min-height: 0; position: relative; }
+  #divider { background: var(--line); cursor: col-resize; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  .toolbar button { padding: 4px 9px; font-size: 13px; }
+  .toolbar .sep { width: 1px; background: var(--line); margin: 0 4px; }
+  textarea#editor { flex: 1; width: 100%; resize: none; border: 0; outline: 0; padding: 16px 20px; font: 14.5px/1.55 "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; background: var(--panel); color: var(--ink); tab-size: 4; }
+  textarea#editor.dragover { outline: 3px dashed var(--gold); outline-offset: -6px; }
+  #preview { flex: 1; border: 0; background: #8a8378; }
+  #empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); text-align: center; padding: 30px; }
+  #empty b { display: block; font-size: 18px; margin-bottom: 8px; color: var(--ink); }
+  .previewbar { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 13px; color: var(--muted); flex-wrap: wrap; }
+  .previewbar .grow { flex: 1; }
+  .previewbar .btn { padding: 3px 9px; font-size: 12px; }
+  #warnings { background: #fff6e0; color: #6a4e00; border-bottom: 1px solid #e8d7a8; padding: 6px 10px; font-size: 13px; display: none; white-space: pre-wrap; }
+  kbd { font: 11px monospace; background: #eee; color: #333; border: 1px solid #ccc; border-radius: 3px; padding: 0 4px; }
+
+  /* settings drawer */
+  #settings { position: absolute; top: 0; left: 0; bottom: 0; width: min(420px, 100%); background: var(--panel); border-right: 1px solid var(--line); box-shadow: 4px 0 24px rgba(0,0,0,.15); overflow: auto; z-index: 5; padding: 10px 14px 30px; }
+  #settings h2 { font-size: 15px; margin: 6px 0 10px; display: flex; align-items: center; gap: 8px; }
+  #settings h2 .close { margin-left: auto; }
+  #settings details { border-top: 1px solid var(--line); padding: 4px 0; }
+  #settings summary { cursor: pointer; font-weight: 600; padding: 6px 0; list-style: none; display: flex; align-items: center; }
+  #settings summary::before { content: "▸"; display: inline-block; width: 16px; color: var(--muted); }
+  #settings details[open] summary::before { content: "▾"; }
+  #settings summary .count { margin-left: auto; font-weight: 400; font-size: 11px; color: var(--muted); background: var(--set); border-radius: 10px; padding: 0 7px; }
+  .field { display: grid; grid-template-columns: 1fr 150px 22px; gap: 6px; align-items: center; padding: 4px 0 4px 16px; }
+  .field.multiline { grid-template-columns: 1fr 22px; }
+  .field.multiline textarea { grid-column: 1 / 2; }
+  .field label { font-size: 13px; }
+  .field .help { display: block; font-size: 11px; color: var(--muted); line-height: 1.3; margin-top: 2px; }
+  .field input, .field select, .field textarea { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 5px; background: #fff; width: 100%; color: var(--ink); }
+  .field input[type=color] { padding: 0 2px; height: 28px; }
+  .field input[type=checkbox] { width: auto; justify-self: start; transform: scale(1.15); }
+  .field textarea { min-height: 54px; resize: vertical; }
+  .field.set input, .field.set select, .field.set textarea { background: var(--set); border-color: #d9b97e; }
+  .field .clear { visibility: hidden; border: 0; background: none; color: var(--muted); padding: 0; font-size: 15px; cursor: pointer; }
+  .field.set .clear { visibility: visible; }
+  .fontlist { padding: 4px 0 4px 16px; font-size: 12px; color: var(--muted); }
+  .fontlist .chip { display: inline-block; margin: 2px 4px 2px 0; padding: 2px 8px; border: 1px solid var(--line); border-radius: 12px; background: #fff; cursor: pointer; color: var(--ink); }
+  .fontlist .chip:hover { background: var(--set); }
+  .catalog { padding: 0 0 4px 16px; font-size: 12px; }
+  .catalog div { display: flex; gap: 6px; align-items: center; padding: 2px 0; }
+  .catalog b { min-width: 150px; }
+  .catalog .note { color: var(--muted); flex: 1; }
+  .catalog button { padding: 1px 8px; font-size: 12px; }
+
+  #help { position: fixed; top: 52px; right: 12px; width: 560px; max-width: calc(100vw - 24px); max-height: calc(100vh - 70px); overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.2); padding: 16px 20px; display: none; z-index: 10; }
+  #help.open { display: block; }
+  #help h2 { margin: 0 0 6px; font-size: 16px; }
+  #help h3 { margin: 16px 0 4px; font-size: 14px; }
+  #help table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  #help td { padding: 3px 6px 3px 0; vertical-align: top; border-bottom: 1px solid #eee; }
+  #help code { background: #efebe3; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+  #help .close { float: right; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; grid-template-rows: 1fr 6px 1fr; } #divider { cursor: row-resize; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Book<span>Press</span></h1>
+  <span class="name" id="projectName"></span>
+  <select id="bookSelect" title="Switch book" hidden></select>
+  <button id="btnNewBook" title="Start another book" hidden>+ New book</button>
+  <button id="btnHelp" title="Formatting cheat sheet">Help</button>
+  <button id="btnSettings" title="Change the look of the book">Settings</button>
+  <button id="btnWide" title="Hide / show the preview">Preview</button>
+  <button id="btnSave" title="Save book.md (Ctrl+S)">Save</button>
+  <button id="btnBuild" class="primary" title="Build the PDF (Ctrl+Enter)">Build PDF</button>
+  <a id="btnDownload" class="btn" href="/download.pdf" download title="Download the last built PDF">Download</a>
+  <span id="status"></span>
+</header>
+
+<main>
+  <section class="pane">
+    <div class="toolbar">
+      <button data-ins="\n# Chapter title\n\n" title="Start a new chapter">+ Chapter</button>
+      <button data-ins="\n@part Part title\n\n" title="Start a new part">+ Part</button>
+      <button data-ins="\n## Section title\n\n" title="A heading inside a chapter">+ Section</button>
+      <span class="sep"></span>
+      <button id="btnImage" title="Insert a picture from your computer">+ Image…</button>
+      <button data-ins="\n* * *\n\n" title="Scene break">* * *</button>
+      <button data-wrap="*" title="Italic"><i>I</i></button>
+      <button data-wrap="**" title="Bold"><b>B</b></button>
+      <button data-line="> " title="Block quote">“ Quote</button>
+      <button data-line="| " title="Verse / poetry line">| Verse</button>
+      <button data-line="- " title="Bullet list">• List</button>
+      <button data-ins="\n| Column | Column |\n|--------|--------|\n| text   | text   |\n\n" title="Table">▦ Table</button>
+      <button data-ins="\n::: box Title\nText in a box.\n:::\n\n" title="Framed box">▢ Box</button>
+      <button data-ins="[^Note text]" title="Footnote">¹ Note</button>
+      <button data-ins="\n@pagebreak\n\n" title="Page break">⤓ Page</button>
+      <input type="file" id="fileInput" accept="image/*" multiple hidden>
+    </div>
+    <textarea id="editor" spellcheck="true" placeholder="Write your book here…"></textarea>
+  </section>
+  <div id="divider"></div>
+  <section class="pane">
+    <div class="previewbar"><span id="pdfInfo">No PDF yet</span><span id="extras"></span><span class="grow"></span><span>Updates after <b>Build PDF</b></span></div>
+    <div id="warnings"></div>
+    <div id="empty"><div><b>Your book will appear here</b>Press <kbd>Build PDF</kbd> (or <kbd>Ctrl</kbd>+<kbd>Enter</kbd>) to typeset it.</div></div>
+    <iframe id="preview" title="PDF preview" hidden></iframe>
+    <aside id="settings" hidden>
+      <h2>Settings <span style="font-weight:400;font-size:12px;color:var(--muted)">written into the top of your file</span><button class="close" id="btnSettingsClose">Close</button></h2>
+      <div id="settingsBody"></div>
+    </aside>
+  </section>
+</main>
+
+<div id="help">
+  <button class="close" id="btnHelpClose">Close</button>
+  <h2>How to write your book</h2>
+  <p>The text box is your whole book. Everything between the two <code>---</code> lines at the top is settings (the <b>Settings</b> button edits them for you); everything after is the book itself.</p>
+  <h3>Structure</h3>
+  <table>
+    <tr><td><code># The Storm</code></td><td>A chapter, numbered automatically (“Chapter One”…). <code># Chapter 3: The Storm</code> also works.</td></tr>
+    <tr><td><code>#* Prologue</code></td><td>A chapter without a number (prologue, epilogue, about the author…)</td></tr>
+    <tr><td><code>@part Part One</code></td><td>A part-divider page</td></tr>
+    <tr><td><code>@subtitle …</code> / <code>@epigraph Quote -- Who</code></td><td>A subtitle or an epigraph under a chapter title (put them right after the <code>#</code> line)</td></tr>
+    <tr><td><code>## Heading</code> / <code>### Smaller</code></td><td>Headings inside a chapter</td></tr>
+    <tr><td><code>* * *</code></td><td>A scene break</td></tr>
+    <tr><td><code>@pagebreak</code></td><td>Start a new page. <code>@blank</code> starts on a right-hand page.</td></tr>
+  </table>
+  <h3>Text</h3>
+  <table>
+    <tr><td>blank line</td><td>Separates paragraphs. Quotes and dashes become the proper marks for your language.</td></tr>
+    <tr><td><code>*italic*</code> <code>**bold**</code> <code>***both***</code></td><td>Emphasis. Also <code>__underline__</code>, <code>~~strike~~</code>, <code>^^small caps^^</code>, <code>x^2^</code>, <code>H,,2,,O</code>, <code>`typewriter`</code>, <code>{red}colour{/}</code></td></tr>
+    <tr><td><code>text[^A note]</code></td><td>A footnote (printed at the end of the chapter, or in a Notes chapter)</td></tr>
+    <tr><td><code>&gt; text</code></td><td>A quoted / indented paragraph</td></tr>
+    <tr><td><code>| line</code></td><td>Poetry or song: each line stays on its own line, leading spaces kept</td></tr>
+    <tr><td><code>-&gt; text</code></td><td>A centered line</td></tr>
+    <tr><td><code>- item</code> / <code>1. item</code></td><td>Bullet and numbered lists</td></tr>
+    <tr><td><code>| a | b |</code> + <code>|---|---|</code></td><td>A table (first row is the header; <code>|---:|</code> right-aligns a column)</td></tr>
+    <tr><td><code>::: box Title</code> … <code>:::</code></td><td>A framed box. Also <code>::: note</code> (shaded), <code>::: letter</code> (italic, indented), <code>::: right</code>, <code>::: center</code></td></tr>
+    <tr><td>two spaces at end of line</td><td>Keeps a line break inside a paragraph</td></tr>
+    <tr><td><code>// note</code></td><td>A note to yourself, not printed</td></tr>
+  </table>
+  <h3>Pictures</h3>
+  <table>
+    <tr><td><code>![Caption](images/boat.jpg)</code></td><td>A picture with a caption, as wide as the text. Use <b>+ Image…</b>, or drop / paste a picture into the editor.</td></tr>
+    <tr><td><code>…{width=50%}</code></td><td>Narrower (also <code>width=3in</code>, <code>8cm</code>, <code>height=2in</code>)</td></tr>
+    <tr><td><code>…{wrap=right}</code></td><td>Small picture with the next paragraph flowing around it</td></tr>
+    <tr><td><code>![a](x.jpg) ![b](y.jpg)</code></td><td>Two or three pictures side by side on one line</td></tr>
+    <tr><td><code>…{page}</code></td><td>A picture on its own page (a plate)</td></tr>
+    <tr><td><code>…{border}</code> <code>{align=left}</code> <code>{nocaption}</code></td><td>Border, alignment, hide the caption</td></tr>
+  </table>
+  <h3>Looks, languages and outputs</h3>
+  <p>Open <b>Settings</b>. Start with a <b>preset</b> (classic novel, modern, manuscript, poetry, non-fiction, large print, children) and a <b>language</b> (35 languages, including Japanese, Chinese and Korean), then adjust anything: page size, fonts, margins, paragraph style, chapter opener style, running heads, page numbers, cover design, pictures, contents, front and back matter, printing.</p>
+  <p><b>Output</b> decides what you get: <code>book</code> (a complete PDF, like a bound book), <code>screen</code> (no blank pages, for phones), <code>booklet</code> (a second PDF with two pages per sheet for folding and stapling at home), <code>print</code> (an interior without the cover plus a separate wrap-around cover PDF with spine and barcode box, for Lulu, KDP, Blurb…).</p>
+  <p><b>Fonts:</b> any font installed on your computer works. The Settings panel can also download free fonts (EB Garamond, Lora, Noto Serif JP…). Or run <code>bookpress fonts</code> in a terminal.</p>
+</div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const editor = $('editor'), status = $('status'), preview = $('preview'), empty = $('empty');
+  let dirty = false, building = false, OPTS = null, fontsInfo = null;
+
+  function setStatus(text, bad) { status.textContent = text; status.className = bad ? 'bad' : ''; }
+  function markDirty() { if (!dirty) { dirty = true; setStatus('Unsaved changes'); } }
+
+  async function api(path, body) {
+    const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return r.json();
+  }
+
+  function applyProject(p) {
+    editor.value = p.source;
+    dirty = false;
+    $('projectName').textContent = p.folder;
+    document.title = 'BookPress – ' + p.name;
+    showExtras(p.extras || []);
+    const sel = $('bookSelect');
+    if (p.library) {
+      sel.hidden = false; $('btnNewBook').hidden = false;
+      sel.innerHTML = '';
+      for (const b of p.books) { const o = document.createElement('option'); o.value = b; o.textContent = b; sel.appendChild(o); }
+      sel.value = p.name;
+    }
+    $('pdfInfo').textContent = p.has_pdf ? 'Last built PDF' : 'No PDF yet';
+    $('warnings').style.display = 'none';
+    if (p.has_pdf) showPdf(); else { preview.hidden = true; empty.hidden = false; }
+    scheduleSync();
+  }
+  async function load() {
+    const r = await fetch('/api/project');
+    applyProject(await r.json());
+    setStatus('Loaded');
+  }
+  async function switchBook(name) {
+    if (dirty && !(await save(true))) return;
+    const r = await api('/api/open', { name });
+    if (r.ok) { applyProject(r); setStatus('Opened ' + r.name); } else setStatus(r.error, true);
+  }
+  async function newBook() {
+    const name = prompt('Name of the new book:', 'My Next Book');
+    if (!name) return;
+    if (dirty) await save(true);
+    const r = await api('/api/new', { name });
+    if (r.ok) { applyProject(r); setStatus('Created ' + r.name); } else setStatus(r.error, true);
+  }
+  $('bookSelect').addEventListener('change', (e) => switchBook(e.target.value));
+  $('btnNewBook').addEventListener('click', newBook);
+
+  async function save(quiet) {
+    const r = await api('/api/save', { source: editor.value });
+    if (r.ok) { dirty = false; if (!quiet) setStatus('Saved'); }
+    else setStatus('Save failed: ' + r.error, true);
+    return r.ok;
+  }
+
+  function showPdf() {
+    empty.hidden = true;
+    preview.hidden = false;
+    preview.src = '/book.pdf?t=' + Date.now() + '#view=FitH';
+  }
+
+  function showExtras(extras) {
+    const box = $('extras');
+    box.innerHTML = '';
+    for (const e of extras) {
+      const a = document.createElement('a');
+      a.className = 'btn'; a.href = '/extra/' + e.name; a.download = e.name; a.textContent = '⬇ ' + e.label;
+      box.appendChild(a);
+    }
+  }
+
+  async function build() {
+    if (building) return;
+    building = true;
+    $('btnBuild').disabled = true;
+    setStatus('Typesetting…');
+    try {
+      const r = await api('/api/build', { source: editor.value });
+      const w = $('warnings');
+      if (r.ok) {
+        dirty = false;
+        setStatus('Built in ' + r.seconds + 's');
+        $('pdfInfo').textContent = r.pages + ' pages · ' + r.font;
+        w.style.display = r.warnings.length ? 'block' : 'none';
+        w.textContent = r.warnings.join('\n');
+        showExtras(r.extras || []);
+        showPdf();
+      } else {
+        setStatus('Build failed', true);
+        w.style.display = 'block';
+        w.textContent = 'Could not build the PDF: ' + r.error;
+      }
+    } catch (e) {
+      setStatus('Build failed: ' + e, true);
+    } finally {
+      building = false;
+      $('btnBuild').disabled = false;
+    }
+  }
+
+  // --- editing helpers ----------------------------------------------------
+  function insertAtCursor(text) {
+    const s = editor.selectionStart, e = editor.selectionEnd;
+    editor.value = editor.value.slice(0, s) + text + editor.value.slice(e);
+    const pos = s + text.length;
+    editor.setSelectionRange(pos, pos);
+    editor.focus();
+    markDirty();
+    scheduleSync();
+  }
+  function wrapSelection(mark) {
+    const s = editor.selectionStart, e = editor.selectionEnd;
+    const sel = editor.value.slice(s, e) || 'text';
+    editor.value = editor.value.slice(0, s) + mark + sel + mark + editor.value.slice(e);
+    editor.setSelectionRange(s + mark.length, s + mark.length + sel.length);
+    editor.focus();
+    markDirty();
+  }
+  function prefixLines(prefix) {
+    const s = editor.selectionStart, e = editor.selectionEnd;
+    const lineStart = editor.value.lastIndexOf('\n', s - 1) + 1;
+    let lineEnd = editor.value.indexOf('\n', e);
+    if (lineEnd < 0) lineEnd = editor.value.length;
+    const chunk = editor.value.slice(lineStart, lineEnd).split('\n').map(l => prefix + l).join('\n');
+    editor.value = editor.value.slice(0, lineStart) + chunk + editor.value.slice(lineEnd);
+    editor.setSelectionRange(lineStart, lineStart + chunk.length);
+    editor.focus();
+    markDirty();
+  }
+  document.querySelectorAll('[data-ins]').forEach(b => b.addEventListener('click', () => insertAtCursor(b.dataset.ins.replace(/\\n/g, '\n'))));
+  document.querySelectorAll('[data-wrap]').forEach(b => b.addEventListener('click', () => wrapSelection(b.dataset.wrap)));
+  document.querySelectorAll('[data-line]').forEach(b => b.addEventListener('click', () => prefixLines(b.dataset.line)));
+
+  // --- images ----------------------------------------------------------
+  function readFile(file) {
+    return new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(file);
+    });
+  }
+  async function addImages(files) {
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) { setStatus('Not an image: ' + file.name, true); continue; }
+      setStatus('Adding ' + file.name + '…');
+      const data = await readFile(file);
+      const r = await api('/api/upload', { name: file.name, data });
+      if (r.ok) {
+        const caption = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ');
+        insertAtCursor('\n![' + caption + '](' + r.path + ')\n\n');
+        setStatus('Added ' + r.name);
+      } else setStatus(r.error, true);
+    }
+  }
+  $('btnImage').addEventListener('click', () => $('fileInput').click());
+  $('fileInput').addEventListener('change', (e) => { addImages([...e.target.files]); e.target.value = ''; });
+  editor.addEventListener('dragover', (e) => { e.preventDefault(); editor.classList.add('dragover'); });
+  editor.addEventListener('dragleave', () => editor.classList.remove('dragover'));
+  editor.addEventListener('drop', (e) => {
+    e.preventDefault(); editor.classList.remove('dragover');
+    if (e.dataTransfer.files.length) addImages([...e.dataTransfer.files]);
+  });
+  editor.addEventListener('paste', (e) => {
+    const files = [...(e.clipboardData.items || [])].filter(i => i.kind === 'file').map(i => i.getAsFile());
+    if (files.length) { e.preventDefault(); addImages(files); }
+  });
+
+  // --- front matter (settings block) -----------------------------------------
+  function frontMatter() {
+    // Returns {start, end, lines} where lines are the raw lines between the --- markers (or null).
+    const lines = editor.value.split('\n');
+    let i = 0;
+    while (i < lines.length && !lines[i].trim()) i++;
+    if (i >= lines.length || lines[i].trim() !== '---') return null;
+    const start = i;
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].trim() === '---') return { start, end: j, lines, body: lines.slice(start + 1, j) };
+    }
+    return { start, end: lines.length, lines, body: lines.slice(start + 1), unterminated: true };
+  }
+  function parseValue(raw) {
+    const v = raw.trim();
+    const low = v.toLowerCase();
+    if (['true', 'yes', 'on', '1'].includes(low)) return true;
+    if (['false', 'no', 'off', '0'].includes(low)) return false;
+    if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v);
+    return v.replace(/^(['"])(.*)\1$/, '$2').replace(/\\n/g, '\n');
+  }
+  function explicitSettings() {
+    const fm = frontMatter();
+    const out = {};
+    if (!fm) return out;
+    for (const line of fm.body) {
+      if (!line.trim() || line.trim().startsWith('#')) continue;
+      const k = line.indexOf(':');
+      if (k < 0) continue;
+      const key = line.slice(0, k).trim().toLowerCase().replace(/[- ]/g, '_');
+      const val = line.slice(k + 1);
+      if (val.trim() === '') continue;
+      out[key] = parseValue(val);
+    }
+    return out;
+  }
+  function formatValue(opt, value) {
+    if (opt.type === 'bool') return value ? 'true' : 'false';
+    if (opt.type === 'multiline') return String(value).replace(/\r?\n/g, '\\n');
+    return String(value);
+  }
+  function setKey(key, text) {
+    // text === null removes the key
+    let fm = frontMatter();
+    let lines = editor.value.split('\n');
+    if (!fm) {
+      lines = ['---', '---', ''].concat(lines);
+      fm = { start: 0, end: 1, lines, body: [] };
+    }
+    const re = new RegExp('^\\s*' + key.replace(/_/g, '[-_ ]') + '\\s*:');
+    let idx = -1;
+    for (let j = fm.start + 1; j < fm.end; j++) if (re.test(lines[j])) { idx = j; }
+    if (text === null) {
+      if (idx >= 0) lines.splice(idx, 1);
+    } else if (idx >= 0) {
+      lines[idx] = key + ': ' + text;
+    } else {
+      lines.splice(fm.end, 0, key + ': ' + text);
+    }
+    const sel = editor.selectionStart;
+    editor.value = lines.join('\n');
+    editor.setSelectionRange(sel, sel);
+    markDirty();
+  }
+
+  // --- settings panel ------------------------------------------------------
+  function effective(key, explicit) {
+    const opt = OPTS.byKey[key];
+    if (key in explicit) return explicit[key];
+    const theme = String(explicit.theme || opt && OPTS.byKey.theme.default || 'classic').toLowerCase();
+    const t = OPTS.themes[theme] || {};
+    const output = String(explicit.output || 'book');
+    const outputDefaults = output === 'screen' ? { blank_pages: false, chapters_on_recto: false }
+                         : output === 'print' ? { cover: false, blank_pages: true, chapters_on_recto: true } : {};
+    if (key in outputDefaults) return outputDefaults[key];
+    if (key in t) return t[key];
+    return opt ? opt.default : '';
+  }
+  function buildSettings() {
+    const body = $('settingsBody');
+    body.innerHTML = '';
+    const groups = [];
+    for (const o of OPTS.options) if (!groups.includes(o.group)) groups.push(o.group);
+    for (const g of groups) {
+      const det = document.createElement('details');
+      if (g === 'Book') det.open = true;
+      const sum = document.createElement('summary');
+      sum.textContent = g;
+      const count = document.createElement('span'); count.className = 'count'; count.dataset.group = g;
+      sum.appendChild(count);
+      det.appendChild(sum);
+      for (const o of OPTS.options.filter(x => x.group === g)) det.appendChild(fieldFor(o));
+      if (g === 'Typography') det.appendChild(fontSection());
+      body.appendChild(det);
+    }
+    syncSettings();
+  }
+  function fieldFor(o) {
+    const div = document.createElement('div');
+    div.className = 'field' + (o.type === 'multiline' ? ' multiline' : '');
+    div.dataset.key = o.key;
+    const label = document.createElement('label');
+    label.innerHTML = o.label + (o.help ? '<span class="help">' + o.help + '</span>' : '');
+    let input;
+    if (o.type === 'select') {
+      input = document.createElement('select');
+      o.choices.forEach((c, i) => {
+        const opt = document.createElement('option');
+        opt.value = c; opt.textContent = (o.choice_labels && o.choice_labels[i]) || (c === '' ? '(default)' : c);
+        input.appendChild(opt);
+      });
+    } else if (o.type === 'bool') {
+      input = document.createElement('input'); input.type = 'checkbox';
+    } else if (o.type === 'number') {
+      input = document.createElement('input'); input.type = 'number'; input.step = 'any';
+    } else if (o.type === 'color') {
+      input = document.createElement('input'); input.type = 'color';
+    } else if (o.type === 'multiline') {
+      input = document.createElement('textarea');
+    } else {
+      input = document.createElement('input'); input.type = 'text';
+      if (o.key === 'font' || o.key === 'heading_font' || o.key === 'cover_font') input.setAttribute('list', 'fontnames');
+    }
+    input.dataset.key = o.key;
+    const clear = document.createElement('button');
+    clear.className = 'clear'; clear.title = 'Back to default'; clear.textContent = '×';
+    clear.addEventListener('click', () => { setKey(o.key, null); syncSettings(); });
+    const onChange = () => {
+      let v;
+      if (o.type === 'bool') v = input.checked; else v = input.value;
+      if (o.type === 'number' && v === '') { setKey(o.key, null); syncSettings(); return; }
+      setKey(o.key, formatValue(o, v));
+      syncSettings();
+    };
+    input.addEventListener('change', onChange);
+    if (o.type === 'multiline' || (o.type === 'text')) input.addEventListener('blur', onChange);
+    if (o.type === 'multiline') { div.appendChild(label); label.style.gridColumn = '1 / 3'; div.appendChild(input); div.appendChild(clear); }
+    else { div.appendChild(label); div.appendChild(input); div.appendChild(clear); }
+    return div;
+  }
+  function fontSection() {
+    const wrap = document.createElement('div');
+    wrap.className = 'fontlist';
+    wrap.innerHTML = '<div><b>Fonts on this computer</b> (click to use as body font)</div><div id="fontChips">loading…</div>' +
+      '<div style="margin-top:8px"><b>Free fonts to download</b></div><div class="catalog" id="fontCatalog"></div>';
+    return wrap;
+  }
+  async function loadFonts() {
+    const r = await fetch('/api/fonts');
+    fontsInfo = await r.json();
+    const dl = $('fontnames');
+    dl.innerHTML = '';
+    const chips = $('fontChips');
+    chips.innerHTML = '';
+    for (const [name, kind] of fontsInfo.installed) {
+      const opt = document.createElement('option'); opt.value = name; dl.appendChild(opt);
+      const chip = document.createElement('span'); chip.className = 'chip'; chip.textContent = name; chip.title = kind;
+      chip.addEventListener('click', () => { setKey('font', name); syncSettings(); });
+      chips.appendChild(chip);
+    }
+    for (const n of ['serif', 'sans', 'typewriter']) { const opt = document.createElement('option'); opt.value = n; dl.appendChild(opt); }
+    const cat = $('fontCatalog');
+    cat.innerHTML = '';
+    const have = new Set(fontsInfo.installed.map(x => x[0]));
+    for (const f of fontsInfo.catalog) {
+      const row = document.createElement('div');
+      row.innerHTML = '<b>' + f.name + '</b><span class="note">' + f.note + '</span>';
+      const btn = document.createElement('button');
+      if (have.has(f.name)) { btn.textContent = 'Use'; btn.addEventListener('click', () => { setKey('font', f.name); syncSettings(); }); }
+      else {
+        btn.textContent = 'Get';
+        btn.addEventListener('click', async () => {
+          btn.disabled = true; btn.textContent = 'Downloading…';
+          const r = await api('/api/fonts/get', { key: f.key });
+          if (r.ok) { setStatus('Installed ' + r.name); setKey('font', r.name); loadFonts(); syncSettings(); }
+          else { setStatus(r.error, true); btn.disabled = false; btn.textContent = 'Get'; }
+        });
+      }
+      row.appendChild(btn);
+      cat.appendChild(row);
+    }
+  }
+  function syncSettings() {
+    if (!OPTS || $('settings').hidden) return;
+    const explicit = explicitSettings();
+    const counts = {};
+    for (const o of OPTS.options) {
+      const div = document.querySelector('.field[data-key="' + o.key + '"]');
+      if (!div) continue;
+      const input = div.querySelector('[data-key]');
+      const isSet = o.key in explicit;
+      div.classList.toggle('set', isSet);
+      if (isSet) counts[o.group] = (counts[o.group] || 0) + 1;
+      if (document.activeElement === input) continue;
+      const v = effective(o.key, explicit);
+      if (o.type === 'bool') input.checked = (v === true || String(v).toLowerCase() === 'true');
+      else if (o.type === 'color') input.value = /^#[0-9a-f]{6}$/i.test(String(v)) ? String(v) : '#000000';
+      else if (o.type === 'select') { input.value = String(v); if (input.value !== String(v)) { const opt = document.createElement('option'); opt.value = String(v); opt.textContent = String(v); input.appendChild(opt); input.value = String(v); } }
+      else input.value = v === null || v === undefined ? '' : String(v);
+    }
+    document.querySelectorAll('#settings .count').forEach(c => { const n = counts[c.dataset.group] || 0; c.textContent = n ? n + ' set' : ''; });
+  }
+  let syncTimer = null;
+  function scheduleSync() { clearTimeout(syncTimer); syncTimer = setTimeout(syncSettings, 400); }
+  async function openSettings() {
+    if (!OPTS) {
+      const r = await fetch('/api/options');
+      const data = await r.json();
+      OPTS = { options: data.options, themes: data.themes, byKey: {} };
+      for (const o of data.options) OPTS.byKey[o.key] = o;
+      buildSettings();
+      loadFonts();
+    }
+    $('settings').hidden = !$('settings').hidden;
+    $('btnSettings').classList.toggle('active', !$('settings').hidden);
+    syncSettings();
+  }
+
+  // --- buttons & keys -----------------------------------------------------
+  $('btnSave').addEventListener('click', () => save());
+  $('btnBuild').addEventListener('click', build);
+  $('btnHelp').addEventListener('click', () => $('help').classList.toggle('open'));
+  $('btnHelpClose').addEventListener('click', () => $('help').classList.remove('open'));
+  $('btnSettings').addEventListener('click', openSettings);
+  $('btnSettingsClose').addEventListener('click', () => { $('settings').hidden = true; $('btnSettings').classList.remove('active'); });
+  $('btnWide').addEventListener('click', () => document.querySelector('main').classList.toggle('wide'));
+  editor.addEventListener('input', () => { markDirty(); scheduleSync(); });
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); build(); }
+    if (e.key === 'Escape') $('help').classList.remove('open');
+  });
+  editor.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') { e.preventDefault(); insertAtCursor('    '); }
+  });
+  window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
+  setInterval(() => { if (dirty && !building) save(true); }, 30000);  // autosave
+
+  // --- resizable split ---------------------------------------------------
+  const divider = $('divider'), main = document.querySelector('main');
+  divider.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const move = (ev) => {
+      const rect = main.getBoundingClientRect();
+      const left = Math.min(Math.max(ev.clientX - rect.left, 300), rect.width - 300);
+      main.style.gridTemplateColumns = left + 'px 6px 1fr';
+    };
+    const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+
+  const dl = document.createElement('datalist'); dl.id = 'fontnames'; document.body.appendChild(dl);
+  load();
+})();
+</script>
+</body>
+</html>
