@@ -5,7 +5,7 @@ Turn plain text and pictures into a PDF that looks like a **real printed book**.
 You write (or paste) your text in a simple format, add images, press *Build*,
 and get a PDF with everything a proper book has:
 
-- a cover (typographic, or your own picture)
+- a cover (five designs, or your own picture)
 - half-title, title page, copyright page, dedication and epigraph pages
 - a table of contents with page numbers (and clickable PDF bookmarks)
 - part dividers and chapter openers that always start on a right-hand page,
@@ -16,18 +16,26 @@ and get a PDF with everything a proper book has:
   margins for binding
 - pictures with captions, full-page plates, scene breaks, block quotes, verse,
   centered lines, "The End"
-- standard trim sizes (6x9, 5x8, 5.5x8.5, A5, ...) ready for print-on-demand
+- lists, tables, framed boxes, footnotes, chapter epigraphs, pictures with
+  text flowing around them, side-by-side pictures, full-page plates
+- presets (classic novel, modern, manuscript, poetry, non-fiction, large
+  print, children) and about ninety individual settings, all in a visual
+  settings panel
+- 35 languages with the right quotation marks, hyphenation and labels,
+  including Japanese, Chinese and Korean
+- outputs for the screen, a home printer (fold-and-staple booklet) and
+  print-on-demand (interior + wrap-around cover with spine)
 
 ![Pages from the sample book](docs/sample-pages.png)
 
 ## Install
 
 ```
-pip install reportlab Pillow pyphen
+pip install reportlab Pillow pyphen pypdf
 ```
 
-(`pyphen` is optional; it adds automatic hyphenation so the justified text has
-nicer spacing.) Python 3.9 or newer.
+(`pyphen` and `pypdf` are optional: hyphenation and the booklet output.)
+Python 3.9 or newer.
 
 Or install BookPress itself from this folder, which gives you a `bookpress`
 command:
@@ -75,35 +83,44 @@ subtitle: A Short Novel
 author: Avery Lane
 year: 2026
 publisher: Driftwood Press
-dedication: For Nan,\nwho kept the light on.
-trim: 6x9
+language: en
+theme: classic
+output: book
 ---
 
 @part Part One: The Long Winter
 
 # The Keeper
+@subtitle In which nobody comes
+@epigraph The sea does not reward the impatient. -- Anne Morrow Lindbergh
 
 Nobody came to Varrow Point in winter if they could help it. The ferry ran
 twice a week when the weather allowed, which it mostly did not...
 
-"You could do it from a camera," her brother said.
+"You could do it from a camera," her brother said.[^She never explained why not.]
 
 ![The lighthouse, from the eastern cliff path.](images/lighthouse.png){width=80%}
 
 * * *
 
-She found the twelfth at noon...
-
-# The Boy from the Boat
-
 ## What the Boy Said
 
-> There is a kind of silence that comes after bad news, and a kind that
-> comes before it.
+> There is a kind of silence that comes after bad news.
 
 | The ferry did not run.
 | The telephone line went down on the first night,
 |     and did not come back.
+
+- Hard tack and salt pork
+- Fresh water in oak casks
+
+| Year | Keeper   | Wrecks |
+|:-----|:---------|-------:|
+| 1911 | T. Marrow|      3 |
+
+::: box A note on the tides
+The spring tides run two metres higher than the neaps.
+:::
 
 #* Epilogue
 
@@ -115,55 +132,78 @@ She found the twelfth at noon...
 | `# Title` | A numbered chapter ("Chapter One"...). `# Chapter 3: Title` works too. |
 | `#* Title` | An unnumbered chapter (prologue, epilogue, about the author) |
 | `@part Title` | A part-divider page |
-| `## Heading` | A small heading inside a chapter |
-| blank line | New paragraph. Straight quotes and `--` become “curly quotes” and – dashes. |
-| `*italic*` `**bold**` | Emphasis |
+| `@subtitle ...`, `@epigraph Quote -- Who` | A subtitle or epigraph under the chapter title |
+| `## Heading`, `### Smaller` | Headings inside a chapter |
+| `@pagebreak`, `@blank` | New page; new right-hand page |
+| blank line | New paragraph. Quotes and dashes become the right marks for the language: "..." → “...”, „...“, «...», 「...」 |
+| `*italic*` `**bold**` `***both***` | Emphasis. Also `__underline__`, `~~strike~~`, `^^small caps^^`, `x^2^`, `H,,2,,O`, `` `typewriter` ``, `{red}colour{/}` |
+| `text[^A note]` | A footnote, printed at the end of the chapter or in a Notes chapter |
 | `* * *` | Scene break |
 | `> text` | Quoted paragraph |
 | `\| line` | Verse: every line kept, leading spaces kept |
 | `-> text` | Centered line |
+| `- item`, `1. item` | Bullet and numbered lists |
+| `\| a \| b \|` + `\|---\|---\|` | A table (first row is the header, `---:` right-aligns) |
+| `::: box Title` ... `:::` | A framed box. Also `::: note` (shaded), `::: letter` (italic, indented), `::: right`, `::: center` |
 | two spaces at line end | Line break inside a paragraph |
 | `![Caption](images/pic.jpg)` | Picture with caption, full text width |
-| `...{width=50%}` / `{width=3in}` | Narrower picture |
+| `...{width=50%}` / `{width=3in}` / `{height=2in}` | Smaller picture |
+| `...{wrap=right}` | Small picture with the next paragraph flowing around it |
+| `![a](x.jpg) ![b](y.jpg)` | Pictures side by side |
 | `...{page}` | Picture on a page of its own |
+| `...{border}` `{align=left}` `{nocaption}` | Border, alignment, no caption |
 | `// note` | A note to yourself, not printed |
 
 ### Settings
 
+Press **Settings** in the editor to see them all with explanations, grouped
+as Book, Page, Typography, Chapters, Running heads, Pictures, Contents, Cover,
+Front & back matter and Printing. The main ones:
+
 | Key | What it does |
 |---|---|
-| `title`, `subtitle`, `author` | Cover, title page, running heads |
-| `year`, `publisher`, `publisher_city`, `isbn`, `edition`, `rights`, `website`, `fiction: true`, `colophon` | Copyright page |
-| `dedication`, `epigraph`, `epigraph_source` | Front-matter pages (`\n` = line break) |
-| `cover_image: images/cover.jpg` | Your own full-page cover. Add `cover_text: true` to print the title over it. |
-| `cover_color`, `cover_accent` | Colours of the typographic cover (default navy and gold) |
-| `cover: false` | No cover page (for a print-on-demand interior file) |
-| `trim` | `5x8`, `5.25x8`, `5.5x8.5`, `6x9`, `7x10`, `a5`, `a4`, `letter`, `pocket`, or any `WIDTHxHEIGHT` with `in`, `cm`, `mm` |
-| `font` | A serif installed on your computer (Palatino Linotype, Georgia, Garamond, Book Antiqua, Times New Roman, EB Garamond, Crimson Text, Liberation Serif...), or a path to a `.ttf` file or a folder of `.ttf` files. Default: the best one found. |
-| `font_size`, `leading` | Type size and line spacing in points (default 11 / 15.4 on 6x9) |
-| `margin_inner`, `margin_outer`, `margin_top`, `margin_bottom` | Override margins, e.g. `1in` or `2cm` |
-| `toc: false`, `toc_title` | Table of contents on/off, its title |
-| `drop_caps: false` | No drop caps |
-| `blank_pages: false` | Don't insert blank left-hand pages (for screen reading) |
-| `chapters_on_recto: false` | Let chapters start on either page |
-| `chapter_label` | The chapter word, e.g. `Kapitel` or empty for just the number |
-| `scene_break` | The scene-break ornament (`* * *`, `~`, `blank`) |
-| `the_end: true` | A "THE END" line after the last chapter |
-| `hyphenate: false`, `smart_quotes: false` | Turn those off |
-| `ink`, `accent` | Text colour and the colour of labels / ornaments |
+| `theme` | A preset look: `classic` (novel), `modern` (sans headings, block paragraphs), `manuscript` (typewriter, double spaced, for submissions), `poetry`, `nonfiction` (numbered figures, notes at the back, deeper contents), `large_print`, `children`. Anything you set yourself overrides the preset. |
+| `language` | 35 languages: `en`, `en_GB`, `de`, `de_CH`, `fr`, `es`, `it`, `pt`, `pt_BR`, `nl`, `sv`, `da`, `nb`, `fi`, `pl`, `cs`, `sk`, `hu`, `ro`, `tr`, `ru`, `uk`, `el`, `ca`, `hr`, `sl`, `bg`, `lt`, `et`, `is`, `id`, `ja`, `zh`, `zh_TW`, `ko`. Sets hyphenation, quotation marks, the words "Chapter", "Contents", "Figure", "The End", the copyright page wording, and the fallback font. Other codes work too (hyphenation only). |
+| `output` | `book`: complete PDF with cover and blank left-hand pages. `screen`: no blank pages, for phones and tablets. `booklet`: also writes `book-booklet.pdf`, two pages per sheet, ordered for folding and stapling (needs `pypdf`). `print`: an interior without the cover plus `book-cover.pdf`, a wrap-around cover with spine and barcode box for Lulu, KDP, Blurb and the like. |
+| `trim`, `margins`, `margin_*`, `paper` | Page size (`5x8`, `5.5x8.5`, `6x9`, `7x10`, `a5`, `b5`, `a4`, `letter`, `pocket`, `14x21cm`...), margin preset or exact margins, paper colour |
+| `font`, `heading_font`, `cover_font` | Any font on your computer, or `serif`, `sans`, `typewriter`, or a .ttf path. `bookpress fonts` lists what it finds and offers free downloads (EB Garamond, Crimson Pro, Lora, Merriweather, Noto Serif JP/SC/TC/KR...). |
+| `font_size`, `line_spacing`, `align`, `paragraph_style`, `paragraph_indent`, `paragraph_space`, `hyphenate`, `widows_orphans`, `ink`, `accent` | Typography |
+| `chapter_style` | `classic`, `number` (big numeral), `simple`, `modern`, `minimal`, `ornate` |
+| `chapter_label`, `chapter_number_style`, `chapter_align`, `chapter_title_size`, `chapter_drop`, `drop_caps`, `drop_cap_lines`, `opener_caps` | Chapter openers |
+| `heading_style`, `heading_align`, `scene_break`, `scene_break_image`, `quote_style`, `notes` | Inside chapters |
+| `running_heads`, `verso_head`, `recto_head`, `page_numbers`, `head_rule` | What goes at the top of each page and where the page number sits |
+| `figure_numbers`, `figure_label`, `image_border`, `image_max_height`, `caption_style` | Pictures |
+| `toc`, `toc_title`, `toc_depth`, `toc_style` | Contents |
+| `cover`, `cover_style` (`classic`, `bold`, `minimal`, `photo`, `plain`), `cover_image`, `cover_image_fit`, `cover_color`, `cover_accent`, `cover_text_color`, `cover_title_size` | Cover |
+| `half_title`, `title_page`, `copyright_page`, `also_by`, `dedication`, `epigraph`, `epigraph_source`, `year`, `publisher`, `publisher_city`, `isbn`, `edition`, `fiction`, `rights`, `website`, `the_end` | Front and back matter |
+| `booklet_sheet`, `bleed`, `paper_stock`, `spine_text`, `blurb`, `back_image`, `barcode_box`, `crop_marks` | Printing |
 
-## Tips
+## Languages
 
-- **Your own cover.** Make the picture the same proportions as the page
-  (6x9 = 2:3), at least 1800x2700 pixels, and set `cover_image`.
-- **Printing it.** For services like Lulu, KDP or Blurb, set `cover: false`
-  (they want the cover separately) and keep `blank_pages: true` so chapters
-  open on the right. Page counts and margins are already in their usual
-  ranges; check the service's own template for exact numbers.
-- **Fonts.** The PDF embeds the font, so it looks the same everywhere. If no
-  serif TrueType font is found, the PDF falls back to the built-in Times.
-- **Pictures** are scaled to fit the text width and never more than about
-  three quarters of a page unless you ask for `{page}`.
+Set `language:` and the book switches wholesale: German gets „Anführungszeichen“,
+"Kapitel", "Inhalt" and "Alle Rechte vorbehalten"; French gets « guillemets »
+with the proper thin spaces; Japanese gets 「かぎ括弧」, 第一章 chapter labels,
+目次, a Japanese font and line breaking that works without spaces. The fixed
+words can always be overridden (`chapter_label`, `toc_title`, `figure_label`,
+`the_end_text`, `notes_title`).
+
+For Japanese, Chinese and Korean a font from your computer is used if there
+is one (Yu Mincho, MS Mincho, Hiragino, SimSun, Batang...); otherwise download
+one: `bookpress fonts get noto-serif-jp` (or `noto-serif-sc`, `noto-serif-tc`,
+`noto-serif-kr`). Vertical Japanese text and right-to-left scripts (Arabic,
+Hebrew) are not supported yet.
+
+## Printing and sharing
+
+- **Reading on a screen:** `output: screen`.
+- **Home printer:** `output: booklet` and print `book-booklet.pdf` double-sided
+  (flip on the short edge), then fold the stack in half and staple.
+- **Print-on-demand:** `output: print`. Upload `book.pdf` as the interior and
+  `book-cover.pdf` as the cover. The spine width follows the page count and
+  `paper_stock`; `bleed` defaults to the usual 0.125 in. Check the service's
+  template for its exact numbers.
+- **A gift:** the default `output: book` with a cover and blank pages reads
+  like a bound book in any PDF viewer (turn on two-page view).
 
 ## How it works
 
@@ -173,5 +213,10 @@ She found the twelfth at noon...
 table of contents gets real page numbers, custom flowables for drop caps and
 letter-spaced small-caps lines); `bookpress/server.py` is a small local web
 server for the editor in `bookpress/ui.html`.
+
+`bookpress/i18n.py` holds the per-language words and quotation marks,
+`bookpress/options.py` every setting with its default and help text (the
+settings panel is generated from it), `bookpress/cover.py` the wrap-around
+cover and `bookpress/booklet.py` the booklet imposition.
 
 Tests: `python -m pytest tests` (needs `pytest` and `pypdf`).

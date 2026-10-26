@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bookpress"
-version = "0.1.0"
+version = "0.2.0"
 description = "Turn plain text and pictures into a PDF that looks like a real printed book"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -15,6 +15,8 @@ dependencies = [
 
 [project.optional-dependencies]
 hyphenation = ["pyphen>=0.14"]
+booklet = ["pypdf>=3.0"]
+all = ["pyphen>=0.14", "pypdf>=3.0"]
 test = ["pytest", "pypdf"]
 
 [project.scripts]

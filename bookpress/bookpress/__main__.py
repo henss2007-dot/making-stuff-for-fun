@@ -35,6 +35,36 @@ def cmd_build(args: argparse.Namespace) -> int:
     for w in result.warnings:
         print(f"warning: {w}", file=sys.stderr)
     print(f"Wrote {result.path}  ({result.pages} pages, {result.font}, {time.time() - t0:.1f}s)")
+    for label, path in result.extras:
+        print(f"Wrote {path}  ({label})")
+    return 0
+
+
+def cmd_fonts(args: argparse.Namespace) -> int:
+    from .fonts import CATALOG, USER_FONT_DIR, download_font, installed_families
+
+    if args.action == "get":
+        if not args.names:
+            print("Say which font(s) to get, e.g.: bookpress fonts get eb-garamond noto-serif-jp", file=sys.stderr)
+            return 1
+        for name in args.names:
+            try:
+                folder = download_font(name, progress=print)
+            except KeyError as exc:
+                print(exc, file=sys.stderr)
+                return 1
+            except Exception as exc:
+                print(f"Could not download {name}: {exc}", file=sys.stderr)
+                return 1
+            print(f"Installed {CATALOG[name.lower()]['name']} into {folder}")
+            print(f"Use it with:  font: {CATALOG[name.lower()]['name']}")
+        return 0
+    print("Fonts found on this computer:")
+    for name, kind in installed_families():
+        print(f"  {name}  ({kind})")
+    print(f"\nFonts you can download with 'bookpress fonts get <key>' (saved in {USER_FONT_DIR}):")
+    for key, entry in CATALOG.items():
+        print(f"  {key:24} {entry['name']:24} {entry['kind']:10} {entry['note']}")
     return 0
 
 
@@ -68,6 +98,11 @@ def main(argv=None) -> int:
     b.add_argument("source", help="book.md file or its folder")
     b.add_argument("-o", "--output", help="output PDF path (default: next to the source)")
     b.set_defaults(func=cmd_build)
+
+    f = sub.add_parser("fonts", help="list fonts, or download free fonts: bookpress fonts get eb-garamond")
+    f.add_argument("action", nargs="?", default="list", choices=["list", "get"])
+    f.add_argument("names", nargs="*")
+    f.set_defaults(func=cmd_fonts)
 
     s = sub.add_parser("serve", help="open the browser editor with live PDF preview")
     s.add_argument("folder", nargs="?", default=".", help="book folder (default: current directory)")

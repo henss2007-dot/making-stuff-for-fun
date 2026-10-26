@@ -10,12 +10,17 @@ fiction: true
 dedication: For Nan,\nwho kept the light on.
 epigraph: The sea does not reward those who are too anxious, too greedy, or too impatient.
 epigraph_source: Anne Morrow Lindbergh
+language: en
+theme: classic
+output: book
 trim: 6x9
 toc: true
 drop_caps: true
 the_end: true
-# cover_image: images/cover.jpg      <- uncomment to use your own cover picture
-# font: Georgia                      <- any serif font installed on your computer
+# Press the Settings button in the editor to change the look (fonts, page size,
+# chapter style, cover, printing...). Everything it writes lands in this block.
+# cover_image: images/cover.jpg      <- your own cover picture
+# font: Georgia                      <- any font installed on your computer
 ---
 
 @part Part One: The Long Winter
