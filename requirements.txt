@@ -1,0 +1,17 @@
+# Core
+mss>=9.0
+Pillow>=10.0
+pytesseract>=0.3.10
+pynput>=1.7
+pyperclip>=1.8
+requests>=2.31
+# Japanese word splitting + readings
+fugashi>=1.3
+unidic-lite>=1.0.8
+
+# Optional extras (uncomment what you want):
+# manga-ocr          # far better OCR for Japanese games/manga (downloads a ~400 MB model)
+# unidic             # full UniDic for better readings; then run: python -m unidic download
+# jieba              # Chinese word splitting
+# anthropic          # AI context check for ambiguous readings
+# pymupdf            # open PDF pages from the window
