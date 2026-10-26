@@ -1,3 +1,5 @@
+import os
+import pytest
 import json
 import zipfile
 from unittest import mock
@@ -99,3 +101,14 @@ def test_corrupt_index_pickle_is_rebuilt(tmp_path):
     os.utime(pkl, (time.time() + 5, time.time() + 5))
     d = JMdict(str(p), tmp_path)
     assert len(d.entries) == 4
+
+
+@pytest.mark.skipif(not os.environ.get("JMDICT_TEST_FILE"), reason="set JMDICT_TEST_FILE to a real jmdict-eng-*.json.zip to run")
+def test_real_jmdict_file(tmp_path):
+    """Opt-in check against the real release: python -m wordmine dictionary, then JMDICT_TEST_FILE=~/.wordmine/dictionaries/jmdict-eng-*.json.zip pytest."""
+    d = JMdict(os.environ["JMDICT_TEST_FILE"], tmp_path)
+    assert len(d.entries) > 150_000
+    assert d.lookup("辛い", "からい", "i-adj").meaning.startswith("1. spicy")
+    assert d.lookup("辛い", "つらい", "i-adj").meaning.startswith("1. painful")
+    assert d.lookup("開く", "あく").reading == "あく" and d.lookup("開く", "ひらく").reading == "ひらく"
+    assert d.lookup("食べる").meaning.startswith("1. to eat")

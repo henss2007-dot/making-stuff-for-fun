@@ -593,6 +593,8 @@ class App:
 
     def _load_jmdict_bg(self):
         if not self.cfg.get("jmdict_path"):
+            if self.cfg["lang"] == "ja":
+                self.q.put(("status_append", "Tip: Settings → Dictionary & AI → Download offline dictionary gives instant meanings without internet."))
             return
         self.status("Building the offline dictionary index (one time, can take a minute)… online lookups are used meanwhile.")
         self.dictionary.load_jmdict_async(lambda err: self.q.put(("status", err or "Offline dictionary ready: hover answers are instant now.")))
@@ -1505,14 +1507,20 @@ class SettingsDialog(tk.Toplevel):
         ttk.Label(f, text="Offline JMdict file").grid(row=1, column=0, sticky="e", **pad)
         ttk.Entry(f, textvariable=var("jmdict_path"), width=34).grid(row=1, column=1, sticky="w", **pad)
         ttk.Button(f, text="Browse…", command=self.browse_jmdict).grid(row=1, column=2, **pad)
-        ttk.Label(f, text="jmdict-eng-*.json.zip from github.com/scriptin/jmdict-simplified/releases (instant, no internet needed)", foreground="#666").grid(row=2, column=0, columnspan=3, sticky="w", **pad)
-        ttk.Label(f, text="AI context check").grid(row=3, column=0, sticky="e", **pad)
-        Choice(f, AI_CHECKS, var("ai_check"), width=24).grid(row=3, column=1, sticky="w", **pad)
-        ttk.Label(f, text="Model").grid(row=4, column=0, sticky="e", **pad)
-        ttk.Entry(f, textvariable=var("ai_model"), width=34).grid(row=4, column=1, sticky="w", **pad)
-        ttk.Label(f, text="API key").grid(row=5, column=0, sticky="e", **pad)
-        ttk.Entry(f, textvariable=var("anthropic_api_key"), width=34, show="•").grid(row=5, column=1, sticky="w", **pad)
-        ttk.Label(f, text="Leave the key empty to use the ANTHROPIC_API_KEY environment variable. Needs: pip install anthropic", foreground="#666").grid(row=6, column=0, columnspan=3, sticky="w", **pad)
+        self.dl_button = ttk.Button(f, text="Download offline dictionary (~12 MB)", command=self.download_jmdict)
+        self.dl_button.grid(row=2, column=1, sticky="w", **pad)
+        self.dl_label = ttk.Label(f, text="", foreground="#1a5276", wraplength=420, justify="left")
+        self.dl_label.grid(row=3, column=0, columnspan=3, sticky="w", **pad)
+        ttk.Label(f, text="JMdict (EDRDG, CC BY-SA 4.0) via jmdict-simplified. Instant meanings with no internet; one-time index build of about 30 s after download.",
+                  foreground="#666", wraplength=460, justify="left").grid(row=4, column=0, columnspan=3, sticky="w", **pad)
+        ttk.Separator(f, orient="horizontal").grid(row=5, column=0, columnspan=3, sticky="we", pady=6)
+        ttk.Label(f, text="AI context check").grid(row=6, column=0, sticky="e", **pad)
+        Choice(f, AI_CHECKS, var("ai_check"), width=24).grid(row=6, column=1, sticky="w", **pad)
+        ttk.Label(f, text="Model").grid(row=7, column=0, sticky="e", **pad)
+        ttk.Entry(f, textvariable=var("ai_model"), width=34).grid(row=7, column=1, sticky="w", **pad)
+        ttk.Label(f, text="API key").grid(row=8, column=0, sticky="e", **pad)
+        ttk.Entry(f, textvariable=var("anthropic_api_key"), width=34, show="•").grid(row=8, column=1, sticky="w", **pad)
+        ttk.Label(f, text="Leave the key empty to use the ANTHROPIC_API_KEY environment variable. Needs: pip install anthropic", foreground="#666").grid(row=9, column=0, columnspan=3, sticky="w", **pad)
 
         f = section("Reading")
         ttk.Label(f, text="OCR engine").grid(row=0, column=0, sticky="e", **pad)
@@ -1550,6 +1558,48 @@ class SettingsDialog(tk.Toplevel):
         p = filedialog.askopenfilename(title="JMdict file", filetypes=[("JMdict JSON / zip", "*.zip *.json"), ("All files", "*.*")], parent=self)
         if p:
             self.vars["jmdict_path"].set(p)
+
+    def download_jmdict(self):
+        """Fetch JMdict in the background; the dialog shows progress and fills in the path."""
+        from . import download
+
+        self.dl_button.configure(state="disabled")
+        self.dl_label.configure(text="Looking up the latest release…")
+        folder = cfgmod.APP_DIR / "dictionaries"
+        app = self.app
+
+        def progress(stage, done, total):
+            if stage == "download":
+                txt = f"Downloading… {download.human_size(done)}" + (f" / {download.human_size(total)}" if total else "")
+            elif stage == "verify":
+                txt = "Checking the file…"
+            else:
+                txt = "Looking up the latest release…"
+            app.ui(lambda: self.dl_label.configure(text=txt) if self.winfo_exists() else None)
+
+        def job():
+            try:
+                path = download.download_jmdict(folder, progress=progress)
+            except download.DownloadError as exc:
+                app.ui(lambda: self._dl_done(None, str(exc)))
+                return
+            app.ui(lambda: self._dl_done(path, ""))
+        threading.Thread(target=job, daemon=True).start()
+
+    def _dl_done(self, path, error):
+        if not self.winfo_exists():
+            if path:
+                self.app.cfg["jmdict_path"] = str(path)
+                cfgmod.save(self.app.cfg)
+                self.app._load_jmdict_bg()
+            return
+        self.dl_button.configure(state="normal")
+        if error:
+            self.dl_label.configure(text=error, foreground="#c62828")
+            return
+        self.vars["jmdict_path"].set(str(path))
+        self.dl_label.configure(text=f"Downloaded {path.name}. Press Save: the index is built in the background (about 20 s), then meanings work offline.",
+                                foreground="#2e7d32")
 
     def browse_tesseract(self):
         p = filedialog.askopenfilename(title="tesseract executable", parent=self)

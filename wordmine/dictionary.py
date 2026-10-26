@@ -66,31 +66,77 @@ class JMdict:
         except OSError:
             pass
 
-    def _load_json(self) -> dict:
+    def _open_text(self):
+        """Text stream of the JSON, from the zip member or the plain file."""
+        import io
+
         if self.path.suffix == ".zip":
-            with zipfile.ZipFile(self.path) as zf:
-                name = next(n for n in zf.namelist() if n.endswith(".json"))
-                with zf.open(name) as fh:
-                    return json.load(fh)
-        with self.path.open(encoding="utf-8") as fh:
-            return json.load(fh)
+            zf = zipfile.ZipFile(self.path)
+            name = next(n for n in zf.namelist() if n.endswith(".json"))
+            return io.TextIOWrapper(zf.open(name), encoding="utf-8")
+        return self.path.open(encoding="utf-8")
+
+    @staticmethod
+    def _iter_words(stream, chunk_size: int = 1 << 20):
+        """Yield the objects of the top-level "words" array one at a time.
+
+        The full file is ~100 MB of JSON; json.load would need over 2 GB of
+        memory. Decoding one entry at a time keeps the build at a few hundred MB.
+        """
+        decoder = json.JSONDecoder()
+        buf = stream.read(chunk_size)
+        marker = '"words"'
+        while marker not in buf:
+            more = stream.read(chunk_size)
+            if not more:
+                return
+            buf += more
+        pos = buf.index(marker) + len(marker)
+        pos = buf.index("[", pos) + 1
+        buf = buf[pos:]
+        while True:
+            # Skip separators; refill when the buffer runs low.
+            i = 0
+            while True:
+                while i < len(buf) and buf[i] in " \r\n\t,":
+                    i += 1
+                if i < len(buf):
+                    break
+                more = stream.read(chunk_size)
+                if not more:
+                    return
+                buf = buf[i:] + more
+                i = 0
+            if buf[i] == "]":
+                return
+            while True:
+                try:
+                    obj, end = decoder.raw_decode(buf, i)
+                    break
+                except json.JSONDecodeError:
+                    more = stream.read(chunk_size)
+                    if not more:
+                        raise
+                    buf += more
+            yield obj
+            buf = buf[end:]
 
     def _build(self) -> None:
-        data = self._load_json()
-        for w in data.get("words", []):
-            kanji = [k["text"] for k in w.get("kanji", []) if k.get("text")]
-            kana = [k["text"] for k in w.get("kana", []) if k.get("text")]
-            senses = []
-            for s in w.get("sense", []):
-                glosses = [g["text"] for g in s.get("gloss", []) if g.get("lang", "eng") == "eng" and g.get("text")]
-                if glosses:
-                    senses.append((tuple(s.get("partOfSpeech", [])), tuple(glosses)))
-            if not senses or not kana:
-                continue
-            idx = len(self.entries)
-            self.entries.append((tuple(kanji), tuple(kana), tuple(senses)))
-            for form in set(kanji + kana):
-                self.index.setdefault(form, []).append(idx)
+        with self._open_text() as stream:
+            for w in self._iter_words(stream):
+                kanji = [k["text"] for k in w.get("kanji", []) if k.get("text")]
+                kana = [k["text"] for k in w.get("kana", []) if k.get("text")]
+                senses = []
+                for s in w.get("sense", []):
+                    glosses = [g["text"] for g in s.get("gloss", []) if g.get("lang", "eng") == "eng" and g.get("text")]
+                    if glosses:
+                        senses.append((tuple(s.get("partOfSpeech", [])), tuple(glosses)))
+                if not senses or not kana:
+                    continue
+                idx = len(self.entries)
+                self.entries.append((tuple(kanji), tuple(kana), tuple(senses)))
+                for form in set(kanji + kana):
+                    self.index.setdefault(form, []).append(idx)
 
     def lookup(self, word: str, reading_hint: str = "", pos: str = "") -> Entry:
         ids = self.index.get(word)

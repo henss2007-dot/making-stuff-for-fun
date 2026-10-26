@@ -74,7 +74,7 @@ missing and how to fix it (same as `python -m wordmine check`).
 
 | Want | Install | Then |
 |---|---|---|
-| Instant, offline Japanese dictionary (no internet needed, best hover experience) | download `jmdict-eng-*.json.zip` from https://github.com/scriptin/jmdict-simplified/releases | Settings → Dictionary & AI → Offline JMdict file. The first load builds an index in the background (about a minute); after that it is instant. |
+| Instant, offline Japanese dictionary (no internet needed, best hover experience) | *Settings → Dictionary & AI → Download offline dictionary* (about 12 MB; `setup.bat` does this for you, or run `python -m wordmine dictionary`) | nothing else: after a one-time index build of about 30 s, hover meanings are instant and work offline. You can also download `jmdict-eng-*.json.zip` by hand from https://github.com/scriptin/jmdict-simplified/releases and pick it with *Browse…*. |
 | Much better Japanese OCR (stylised fonts, furigana, manga) | `pip install manga-ocr` (downloads a ~400 MB model on first use) | Settings → Reading → OCR engine |
 | Better Japanese readings (full UniDic, ~1 GB) | `pip install unidic && python -m unidic download` | picked up automatically |
 | Chinese word splitting | `pip install jieba` | choose Chinese as the language |
@@ -178,9 +178,11 @@ the images show on the cards.
   readings, alternatives, grammar); Chinese uses jieba; every other language
   is split on word boundaries (no lemmatiser, so *ran* and *running* are
   separate entries).
-- **Meanings:** Japanese from JMdict (offline) or jisho.org; English from
-  dictionaryapi.dev; every other language from English Wiktionary; and the
-  optional AI explains any sentence in any language.
+- **Meanings:** Japanese from JMdict (offline, one click to download) or
+  jisho.org; English from dictionaryapi.dev; every other language from
+  English Wiktionary; and the optional AI explains any sentence in any
+  language. Without internet and without the JMdict download, hover still
+  shows readings and grammar but the meaning line stays empty.
 
 ## Files
 
@@ -223,3 +225,15 @@ python -m pytest tests                   # run the test suite
 - **"Cannot reach Anki":** Anki must be open with AnkiConnect installed. Your
   words are safe in the list; press *Send to Anki* later or export a TSV.
 - **Linux:** hotkeys need X11 (not Wayland) and Tk needs `python3-tk`.
+
+## Credits
+
+- [JMdict](https://www.edrdg.org/jmdict/j_jmdict.html) by the Electronic
+  Dictionary Research and Development Group, used under
+  [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), in the
+  JSON form published by [jmdict-simplified](https://github.com/scriptin/jmdict-simplified).
+- Readings and word splitting: [MeCab](https://taku910.github.io/mecab/) via
+  [fugashi](https://github.com/polm/fugashi) with UniDic.
+- OCR: [Tesseract](https://github.com/tesseract-ocr/tesseract); optional
+  [manga-ocr](https://github.com/kha-white/manga-ocr).
+- Online meanings: [jisho.org](https://jisho.org), [dictionaryapi.dev](https://dictionaryapi.dev), [Wiktionary](https://en.wiktionary.org).

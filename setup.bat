@@ -27,6 +27,9 @@ echo Checking the rest of the setup (Tesseract, Anki, ...):
 echo.
 %PY% -m wordmine check
 echo.
+echo Downloading the offline Japanese dictionary (JMdict, about 12 MB) so meanings work without internet...
+%PY% -m wordmine dictionary || echo (Skipped: no internet right now. You can do this later from Settings in WordMine.)
+echo.
 echo If everything above says OK, double-click WordMine.bat to start.
 echo FAIL lines tell you what to install; see README.md for the links.
 pause

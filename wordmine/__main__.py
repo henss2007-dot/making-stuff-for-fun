@@ -4,6 +4,7 @@
   python -m wordmine check      diagnose the setup (Tesseract, dictionaries, Anki)
   python -m wordmine ocr IMG    OCR an image file and list its words
   python -m wordmine text "…"   split a piece of text into words
+  python -m wordmine dictionary download the offline Japanese dictionary (JMdict) and build its index
 """
 
 from __future__ import annotations
@@ -55,6 +56,41 @@ def cmd_ocr(args, cfg):
     _print_tokens(tokenize(text, cfg["lang"]))
 
 
+def cmd_dictionary(_args, cfg):
+    """Download JMdict into the WordMine folder, point the config at it, build the index."""
+    import time
+
+    from . import download
+    from .dictionary import JMdict
+
+    folder = cfgmod.APP_DIR / "dictionaries"
+    last = {"pct": -1}
+
+    def progress(stage, done, total):
+        if stage == "resolve":
+            print("Looking up the latest JMdict release…")
+        elif stage == "download":
+            pct = int(done * 100 / total) if total else -1
+            if pct != last["pct"] and (pct % 5 == 0 or pct < 0):
+                last["pct"] = pct
+                print(f"\r  downloading {download.human_size(done)}" + (f" / {download.human_size(total)} ({pct}%)" if total else ""), end="", flush=True)
+        elif stage == "verify":
+            print("\n  checking the file…")
+
+    try:
+        path = download.download_jmdict(folder, progress=progress)
+    except download.DownloadError as exc:
+        print(f"\n{exc}")
+        return 1
+    cfg["jmdict_path"] = str(path)
+    cfgmod.save(cfg)
+    print(f"Saved to {path}\nBuilding the lookup index (one time, about 20-30 seconds)…")
+    t0 = time.time()
+    d = JMdict(str(path), cfgmod.APP_DIR)
+    print(f"Done: {len(d.entries):,} entries indexed in {time.time() - t0:.0f} s. Hover meanings now work offline.")
+    return 0
+
+
 def cmd_check(_args, cfg):
     from .diagnostics import run_checks
     for status, msg in run_checks(cfg):
@@ -73,9 +109,13 @@ def main(argv=None):
     p = sub.add_parser("text", help="split text into words")
     p.add_argument("text", nargs="+")
     p.add_argument("--lang")
+    sub.add_parser("dictionary", help="download the offline Japanese dictionary (JMdict) and build its index")
     args = parser.parse_args(argv)
     cfg = cfgmod.load()
-    {"gui": cmd_gui, None: cmd_gui, "check": cmd_check, "ocr": cmd_ocr, "text": cmd_text}[args.cmd](args, cfg)
+    result = {"gui": cmd_gui, None: cmd_gui, "check": cmd_check, "ocr": cmd_ocr, "text": cmd_text,
+              "dictionary": cmd_dictionary}[args.cmd](args, cfg)
+    if isinstance(result, int):
+        sys.exit(result)
 
 
 if __name__ == "__main__":

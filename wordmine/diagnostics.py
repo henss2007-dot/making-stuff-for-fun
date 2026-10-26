@@ -60,8 +60,9 @@ def run_checks(cfg: dict) -> list[tuple[str, str]]:
             else:
                 out.append((FAIL, f"JMdict file not found: {cfg['jmdict_path']}"))
         else:
-            out.append((NOTE, "No offline dictionary: meanings come from jisho.org (needs internet). "
-                              "For instant offline lookups download jmdict-eng-*.json.zip from https://github.com/scriptin/jmdict-simplified/releases and set it in Settings."))
+            out.append((NOTE, "No offline dictionary yet: meanings come from jisho.org (needs internet). "
+                              "For instant offline lookups use Settings > Dictionary & AI > 'Download offline dictionary' "
+                              "(or run: python -m wordmine dictionary)."))
     elif cfg["lang"] in ("zh", "zh-tw"):
         try:
             import jieba  # noqa: F401
