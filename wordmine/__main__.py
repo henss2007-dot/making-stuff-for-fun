@@ -79,14 +79,19 @@ def cmd_dictionary(_args, cfg):
 
     try:
         path = download.download_jmdict(folder, progress=progress)
-    except download.DownloadError as exc:
+    except (download.DownloadError, OSError) as exc:
         print(f"\n{exc}")
         return 1
     cfg["jmdict_path"] = str(path)
     cfgmod.save(cfg)
-    print(f"Saved to {path}\nBuilding the lookup index (one time, about 20-30 seconds)…")
+    download.remove_old_versions(folder, path, cfgmod.APP_DIR)
+    print(f"Saved to {path}\nBuilding the lookup index (one time, about 30 seconds)…")
     t0 = time.time()
-    d = JMdict(str(path), cfgmod.APP_DIR)
+    try:
+        d = JMdict(str(path), cfgmod.APP_DIR)
+    except Exception as exc:
+        print(f"Could not build the index from {path}: {exc}")
+        return 1
     print(f"Done: {len(d.entries):,} entries indexed in {time.time() - t0:.0f} s. Hover meanings now work offline.")
     return 0
 

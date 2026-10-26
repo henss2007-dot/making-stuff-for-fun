@@ -65,6 +65,12 @@ class JMdict:
             os.replace(tmp, pkl)
         except OSError:
             pass
+        for other in Path(cache_dir).glob("jmdict-eng-*.index.pkl"):
+            if other != pkl:
+                try:
+                    other.unlink()  # index of a superseded dictionary version
+                except OSError:
+                    pass
 
     def _open_text(self):
         """Text stream of the JSON, from the zip member or the plain file."""
@@ -83,17 +89,20 @@ class JMdict:
         The full file is ~100 MB of JSON; json.load would need over 2 GB of
         memory. Decoding one entry at a time keeps the build at a few hundred MB.
         """
+        import re
+
         decoder = json.JSONDecoder()
         buf = stream.read(chunk_size)
-        marker = '"words"'
-        while marker not in buf:
+        key = re.compile(r'"words"\s*:\s*\[')  # the key, not a string value that happens to say "words"
+        while True:
+            m = key.search(buf)
+            if m:
+                break
             more = stream.read(chunk_size)
             if not more:
                 return
-            buf += more
-        pos = buf.index(marker) + len(marker)
-        pos = buf.index("[", pos) + 1
-        buf = buf[pos:]
+            buf = buf[-64:] + more if len(buf) > 64 else buf + more
+        buf = buf[m.end():]
         while True:
             # Skip separators; refill when the buffer runs low.
             i = 0
@@ -183,6 +192,7 @@ class Dictionary:
         self._dirty = False
         self.jmdict: Optional[JMdict] = None
         self.jmdict_error = ""
+        self.jmdict_loaded_from = ""
         self._retried: set[tuple[str, str]] = set()
         if self.path.exists():
             try:
@@ -205,8 +215,11 @@ class Dictionary:
         except Exception as exc:  # bad path / corrupt file: fall back to online
             built, err = None, f"Could not load JMdict from {jm}: {exc}"
         with self.lock:
+            if (self.cfg.get("jmdict_path") or "") != jm:
+                return "superseded"  # the path changed while this build ran: keep the newer one
             self.jmdict = built
             self.jmdict_error = err
+            self.jmdict_loaded_from = jm
         return err
 
     def load_jmdict_async(self, on_done: Optional[Callable[[str], None]] = None) -> Optional[threading.Thread]:

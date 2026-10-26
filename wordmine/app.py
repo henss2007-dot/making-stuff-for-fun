@@ -592,12 +592,24 @@ class App:
             pass
 
     def _load_jmdict_bg(self):
-        if not self.cfg.get("jmdict_path"):
+        path = self.cfg.get("jmdict_path") or ""
+        if not path:
+            self.dictionary.load_jmdict()  # clears a previously loaded dictionary
             if self.cfg["lang"] == "ja":
                 self.q.put(("status_append", "Tip: Settings → Dictionary & AI → Download offline dictionary gives instant meanings without internet."))
             return
-        self.status("Building the offline dictionary index (one time, can take a minute)… online lookups are used meanwhile.")
-        self.dictionary.load_jmdict_async(lambda err: self.q.put(("status", err or "Offline dictionary ready: hover answers are instant now.")))
+        if self.dictionary.jmdict is not None and self.dictionary.jmdict_loaded_from == path:
+            return  # already built from this very file
+        self.status("Building the offline dictionary index (one time, about 30 s)… online lookups are used meanwhile.")
+
+        def done(err):
+            if err == "superseded":
+                return  # a newer build for a different file took over
+            if not err:
+                from . import download
+                download.remove_old_versions(cfgmod.APP_DIR / "dictionaries", path, cfgmod.APP_DIR)
+            self.q.put(("status", err or "Offline dictionary ready: hover answers are instant now."))
+        self.dictionary.load_jmdict_async(done)
 
     def _startup_checks(self):
         notes = []
@@ -660,8 +672,7 @@ class App:
         self.anki.reset()
         with self.engine_lock:
             self.engine = None
-        self.dictionary.save()
-        self.dictionary = Dictionary(c, load_jmdict=False)
+        self.dictionary.save()  # cfg is shared by reference, so the same Dictionary keeps working
         self._load_jmdict_bg()
         self._apply_topmost()
         if self.v_autosend.get() != bool(c["anki_auto_send"]):
@@ -1581,7 +1592,12 @@ class SettingsDialog(tk.Toplevel):
             try:
                 path = download.download_jmdict(folder, progress=progress)
             except download.DownloadError as exc:
-                app.ui(lambda: self._dl_done(None, str(exc)))
+                msg = str(exc)  # bind now: `exc` is gone once the except block ends
+                app.ui(lambda m=msg: self._dl_done(None, m))
+                return
+            except Exception as exc:  # anything else must still re-enable the button and say what happened
+                msg = f"Download failed: {exc}"
+                app.ui(lambda m=msg: self._dl_done(None, m))
                 return
             app.ui(lambda: self._dl_done(path, ""))
         threading.Thread(target=job, daemon=True).start()
@@ -1597,6 +1613,7 @@ class SettingsDialog(tk.Toplevel):
         if error:
             self.dl_label.configure(text=error, foreground="#c62828")
             return
+        self.dl_label.configure(foreground="#2e7d32")
         self.vars["jmdict_path"].set(str(path))
         self.dl_label.configure(text=f"Downloaded {path.name}. Press Save: the index is built in the background (about 20 s), then meanings work offline.",
                                 foreground="#2e7d32")
@@ -1714,7 +1731,8 @@ class EditDialog(tk.Toplevel):
                              self.app.cfg["lang"], self.app.cfg["ai_model"], self.app.cfg["anthropic_api_key"])
                 self.app.ui(lambda: self._set_ai(v))
             except ai.AIError as exc:
-                self.app.ui(lambda: self.info.configure(text=str(exc)) if self.winfo_exists() else None)
+                msg = str(exc)
+                self.app.ui(lambda m=msg: self.info.configure(text=m) if self.winfo_exists() else None)
         threading.Thread(target=job, daemon=True).start()
 
     def _set_ai(self, v):
@@ -1819,7 +1837,8 @@ class ExplainDialog(tk.Toplevel):
             b = ai.explain_sentence(self.sentence, self.app.cfg["lang"], self.app.cfg["ai_model"], self.app.cfg["anthropic_api_key"])
             self.app.ui(lambda: self._show(b))
         except ai.AIError as exc:
-            self.app.ui(lambda: self.translation.configure(text=str(exc)) if self.winfo_exists() else None)
+            msg = str(exc)
+            self.app.ui(lambda m=msg: self.translation.configure(text=m) if self.winfo_exists() else None)
 
     def _show(self, b):
         if not self.winfo_exists():

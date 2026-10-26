@@ -112,3 +112,31 @@ def test_real_jmdict_file(tmp_path):
     assert d.lookup("辛い", "つらい", "i-adj").meaning.startswith("1. painful")
     assert d.lookup("開く", "あく").reading == "あく" and d.lookup("開く", "ひらく").reading == "ひらく"
     assert d.lookup("食べる").meaning.startswith("1. to eat")
+
+
+def test_words_key_search_ignores_string_values_and_cleans_stale_indexes(tmp_path):
+    data = {"meta": {"note": "the \"words\" here are many", "tags": ["words"]}, "words": JM["words"]}
+    p = tmp_path / "jmdict-eng-4.0.0.json"
+    p.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    (tmp_path / "jmdict-eng-3.9.9.index.pkl").write_bytes(b"stale")
+    d = JMdict(str(p), tmp_path)
+    assert len(d.entries) == 4
+    assert not (tmp_path / "jmdict-eng-3.9.9.index.pkl").exists()
+    assert (tmp_path / "jmdict-eng-4.0.0.index.pkl").exists()
+
+
+def test_load_jmdict_superseded_build_does_not_overwrite(tmp_path):
+    cfg = {"jmdict_path": str(make_jmdict(tmp_path))}
+    dic = Dictionary(cfg, tmp_path, load_jmdict=False)
+    import threading
+    started = threading.Event()
+    real_init = JMdict.__init__
+
+    def slow_init(self, path, cache_dir):
+        started.set()
+        real_init(self, path, cache_dir)
+        cfg["jmdict_path"] = str(tmp_path / "other.zip")  # path changes while this build is in flight
+
+    with mock.patch.object(JMdict, "__init__", slow_init):
+        assert dic.load_jmdict() == "superseded"
+    assert dic.jmdict is None and dic.jmdict_loaded_from == ""

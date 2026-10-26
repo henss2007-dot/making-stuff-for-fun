@@ -188,7 +188,10 @@ the images show on the cards.
 
 Everything lives in `~/.wordmine/` (Windows: `C:\Users\<you>\.wordmine\`):
 `config.json`, `words.json` (your list), `known_words.txt`, `dict_cache.json`,
-`screenshots/`. *My words → Export → Open data folder* opens it.
+`screenshots/`, `dictionaries/` (the downloaded JMdict zip, about 12 MB) and
+`jmdict-eng-*.index.pkl` (its lookup index, about 28 MB, rebuilt automatically
+if deleted; deleting both turns offline meanings off). *My words → Export →
+Open data folder* opens it.
 
 ## How the Japanese disambiguation works
 

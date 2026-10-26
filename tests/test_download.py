@@ -107,14 +107,45 @@ def test_download_jmdict_end_to_end(release_server, tmp_path):
     assert not list(dest.glob("*.part"))
 
 
-def test_download_removes_older_versions(release_server, tmp_path):
+def test_download_keeps_older_versions_until_cleanup(release_server, tmp_path):
     base, _, _ = release_server
     dest = tmp_path / "dicts"
     dest.mkdir()
     (dest / "jmdict-eng-3.5.0.json.zip").write_bytes(b"old")
+    (tmp_path / "jmdict-eng-3.5.0.index.pkl").write_bytes(b"idx")
+    (tmp_path / "jmdict-eng-3.6.1+20261020123.index.pkl").write_bytes(b"new idx")
     with mock.patch.object(download, "API_LATEST", f"{base}/api"):
-        download.download_jmdict(dest)
+        new = download.download_jmdict(dest)
+    # the download itself deletes nothing (a cancelled update must not break the configured file)
+    assert sorted(p.name for p in dest.iterdir()) == ["jmdict-eng-3.5.0.json.zip", "jmdict-eng-3.6.1+20261020123.json.zip"]
+    removed = download.remove_old_versions(dest, new, tmp_path)
+    assert [p.name for p in removed] == ["jmdict-eng-3.5.0.json.zip"]
     assert sorted(p.name for p in dest.iterdir()) == ["jmdict-eng-3.6.1+20261020123.json.zip"]
+    assert not (tmp_path / "jmdict-eng-3.5.0.index.pkl").exists()
+    assert (tmp_path / "jmdict-eng-3.6.1+20261020123.index.pkl").exists()
+
+
+def test_damaged_existing_file_is_redownloaded(release_server, tmp_path):
+    base, state, payload = release_server
+    dest = tmp_path / "dicts"
+    dest.mkdir()
+    (dest / "jmdict-eng-3.6.1+20261020123.json.zip").write_bytes(b"x" * len(payload))  # right size, wrong content
+    with mock.patch.object(download, "API_LATEST", f"{base}/api"):
+        path = download.download_jmdict(dest)
+    assert path.read_bytes() == payload
+    assert sum(1 for m, p in state["hits"] if p == "/asset.zip") == 1
+
+
+def test_os_errors_become_download_errors(release_server, tmp_path):
+    base, _, _ = release_server
+    (tmp_path / "file-not-dir").write_bytes(b"")  # a file where the folder should be
+    with pytest.raises(download.DownloadError, match="Could not write"):
+        download.download_file(f"{base}/asset.zip", tmp_path / "file-not-dir" / "x.zip")
+    with mock.patch("wordmine.download.os.replace", side_effect=PermissionError(13, "file in use")):
+        with pytest.raises(download.DownloadError, match="Could not write"):
+            download.download_file(f"{base}/asset.zip", tmp_path / "y.zip")
+    with pytest.raises(download.DownloadError, match="Could not read"):
+        download.validate_jmdict_zip(tmp_path / "does-not-exist.zip")
 
 
 def test_invalid_zip_is_rejected_and_removed(release_server, tmp_path):
@@ -155,6 +186,10 @@ def test_cli_dictionary_command(release_server, tmp_path, capsys, monkeypatch):
     cfg = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
     assert cfg["jmdict_path"].endswith("jmdict-eng-3.6.1+20261020123.json.zip")
     assert (tmp_path / "jmdict-eng-3.6.1+20261020123.index.pkl").exists()
+    # a build failure is reported, not a traceback
+    with mock.patch.object(download, "API_LATEST", f"{base}/api"), mock.patch("wordmine.dictionary.JMdict.__init__", side_effect=RuntimeError("boom")):
+        assert cli.cmd_dictionary(None, dict(cfgmod.DEFAULTS)) == 1
+    assert "Could not build the index" in capsys.readouterr().out
 
 
 def test_human_size():

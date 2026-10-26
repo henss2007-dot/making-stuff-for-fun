@@ -58,9 +58,9 @@ def download_file(url: str, dest: Path, progress: Optional[Callable[[int, int], 
                   cancel: Optional[threading.Event] = None, expected_size: int = 0) -> Path:
     """Stream url into dest (written to a temp file first). progress(done, total) is called as it goes."""
     dest = Path(dest)
-    dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
     try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
         with requests.get(url, headers=_HEADERS, stream=True, timeout=_TIMEOUT, allow_redirects=True) as r:
             if r.status_code != 200:
                 raise DownloadError(f"Download failed: HTTP {r.status_code} for {url}")
@@ -78,6 +78,8 @@ def download_file(url: str, dest: Path, progress: Optional[Callable[[int, int], 
         os.replace(tmp, dest)
     except requests.RequestException as exc:
         raise DownloadError(f"Download failed: {exc}") from exc
+    except OSError as exc:  # after RequestException, which is itself an OSError subclass
+        raise DownloadError(f"Could not write {dest}: {exc}") from exc
     finally:
         if tmp.exists():
             try:
@@ -97,7 +99,9 @@ def validate_jmdict_zip(path: Path) -> None:
             if zf.testzip() is not None:
                 raise DownloadError("The downloaded file is damaged (zip test failed).")
     except zipfile.BadZipFile as exc:
-        raise DownloadError("The downloaded file is not a valid zip archive.") from exc
+        raise DownloadError(f"{path} is not a valid zip archive.") from exc
+    except OSError as exc:
+        raise DownloadError(f"Could not read {path}: {exc}") from exc
 
 
 def download_jmdict(dest_dir: Path, progress: Optional[Callable[[str, int, int], None]] = None,
@@ -105,15 +109,22 @@ def download_jmdict(dest_dir: Path, progress: Optional[Callable[[str, int, int],
     """Fetch the newest English JMdict zip into dest_dir and return its path.
 
     progress(stage, done, total): stage is "resolve", "download" or "verify".
-    Older downloads in dest_dir are removed once the new one is verified.
+    Nothing else is deleted here: call remove_old_versions() once the new
+    path has been saved to the configuration.
     """
     if progress:
         progress("resolve", 0, 0)
     name, url, size = latest_jmdict_asset()
     dest = Path(dest_dir) / name
     if dest.exists() and dest.stat().st_size > 0 and (not size or dest.stat().st_size == size):
-        validate_jmdict_zip(dest)
-        return dest
+        try:
+            validate_jmdict_zip(dest)
+            return dest
+        except DownloadError:
+            try:
+                dest.unlink()  # damaged earlier download: fetch it again
+            except OSError:
+                pass
     download_file(url, dest, progress=(lambda d, t: progress("download", d, t)) if progress else None,
                   cancel=cancel, expected_size=size)
     if progress:
@@ -126,13 +137,32 @@ def download_jmdict(dest_dir: Path, progress: Optional[Callable[[str, int, int],
         except OSError:
             pass
         raise
+    return dest
+
+
+def remove_old_versions(dest_dir: Path, keep: Path, index_dir: Optional[Path] = None) -> list[Path]:
+    """Delete other jmdict-eng-*.json.zip files in dest_dir (and their .index.pkl in index_dir).
+
+    Call this only after `keep` is the configured dictionary, so a cancelled
+    update never leaves the configuration pointing at a deleted file.
+    """
+    removed: list[Path] = []
+    keep = Path(keep)
     for old in Path(dest_dir).glob("jmdict-eng-*.json.zip"):
-        if old != dest:
+        if old.resolve() == keep.resolve():
+            continue
+        try:
+            old.unlink()
+            removed.append(old)
+        except OSError:
+            continue
+        if index_dir is not None:
+            pkl = Path(index_dir) / (old.stem.replace(".json", "") + ".index.pkl")
             try:
-                old.unlink()
+                pkl.unlink()
             except OSError:
                 pass
-    return dest
+    return removed
 
 
 def human_size(n: int) -> str:
