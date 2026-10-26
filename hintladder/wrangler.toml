@@ -1,0 +1,26 @@
+# Cloudflare Worker config for HintLadder. Deploy with: npx wrangler deploy
+name = "hintladder"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+# The page itself. Requests that match a file here are served directly; /api/*
+# always reaches worker.js.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[vars]
+# Which model writes the hints. claude-haiku-5-5 is about 20x cheaper and
+# fine for well-known games; claude-opus-5-5 gives the best hints.
+MODEL = "claude-sonnet-5-5"
+
+# Per-connection limit: 10 questions a minute. Approximate, per Cloudflare
+# location. Delete this block to run without it.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+# The API key is a secret, not a var. Set it once with:
+#   npx wrangler secret put ANTHROPIC_API_KEY

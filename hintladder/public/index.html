@@ -299,7 +299,7 @@ Spoiler rules, which override everything else:
     saveSettings: $("saveSettings"), settingsStatus: $("settingsStatus"), askCard: $("askCard")
   };
 
-  let mode = "pending";       // "sample" (inside claude.ai) | "key" (own API key) | "pending"
+  let mode = "pending";       // "server" (hosted copy, free for visitors) | "sample" (inside claude.ai) | "key" (own API key) | "pending"
   let sampleFn = null;
   let controller = null;
   let session = null;         // { game, where, stuck, tried, turns: [{role, content}], ladder, revealed, created }
@@ -320,7 +320,16 @@ Spoiler rules, which override everything else:
     if (sampleFn) {
       mode = "sample";
       el.settingsCard.hidden = true;
-    } else {
+      return;
+    }
+    // A hosted copy (see worker.js) answers on the site owner's key, so visitors pay nothing.
+    if (/^https?:$/.test(location.protocol)) {
+      try {
+        const r = await fetch("api/health", { cache: "no-store" });
+        if (r.ok && (await r.json()).ok) { mode = "server"; el.settingsCard.hidden = true; return; }
+      } catch (e) { /* no server behind this page */ }
+    }
+    {
       mode = "key";
       el.settingsCard.hidden = false;
       el.apiKey.value = store.get("hl.apiKey", "");
@@ -395,7 +404,23 @@ Spoiler rules, which override everything else:
     return normalize(data);
   }
 
+  async function askServer(turns, signal) {
+    const res = await fetch("api/hint", {
+      method: "POST", signal,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ turns })
+    });
+    let body = null;
+    try { body = await res.json(); } catch (e) { /* non-JSON error page */ }
+    if (!res.ok || !body || !body.ladder) {
+      const err = (body && body.error) || {};
+      throw { code: err.code || "http_" + res.status, message: err.message || res.statusText };
+    }
+    return normalize(body.ladder);
+  }
+
   function ask(turns, signal) {
+    if (mode === "server") return askServer(turns, signal);
     return mode === "sample" ? askSample(turns, signal) : askKey(turns, signal);
   }
 
@@ -405,6 +430,8 @@ Spoiler rules, which override everything else:
     if (code === "no_key") return "Add your API key under Connection first.";
     if (code === "not_granted" || code === "sampling_disabled") return "This page isn't allowed to ask Claude on your account.";
     if (code === "rate_limited" || code === "http_429") return "Too many requests right now. Wait a minute and try again.";
+    if (code === "not_configured") return "This site isn't set up yet: the owner hasn't added an API key.";
+    if (code === "bad_request") return "The question couldn't be sent" + (e.message ? ": " + e.message : ".");
     if (code === "http_401") return "That API key was rejected. Check it under Connection.";
     if (code === "http_403") return "This browser can't reach the API with that key (" + (e.message || "forbidden") + ").";
     if (code === "refused") return "Claude declined to answer that one. Try rewording.";
