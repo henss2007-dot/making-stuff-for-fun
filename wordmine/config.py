@@ -10,18 +10,36 @@ from typing import Any
 APP_DIR = Path(os.environ.get("WORDMINE_HOME", Path.home() / ".wordmine"))
 
 DEFAULTS: dict[str, Any] = {
-    # What you are mining from: "game", "manga" or "book". Picking a mode in the
-    # UI applies sensible presets for orientation, context and screenshots.
+    # What you are mining from: "game", "vn" (visual novel), "manga" or "book".
+    # Picking a mode in the UI applies presets for orientation, context,
+    # screenshots and clipboard watching.
     "mode": "game",
+    # Hover mode: move the mouse over a word on the game screen (or in the
+    # window) to see its reading and meaning; a hotkey saves it.
+    "hover_mode": True,
+    # Auto mode: OCR the region whenever its text changes (on by default once
+    # a region has been selected).
+    "auto": True,
+    # Also send every saved word to Anki right away (when Anki is open). Off:
+    # words only go to your word list, and you send them later or export.
+    "anki_auto_send": False,
+    # Note type names in Anki (grammar and sentence cards use these + suffix).
+    "note_type_grammar": "WordMine Grammar",
+    "note_type_sentence": "WordMine Sentence",
+    # Optional offline Japanese dictionary: path to a jmdict-simplified
+    # jmdict-eng-*.json(.zip) file. Empty = online lookups only.
+    "jmdict_path": "",
+    # Seconds the on-screen tooltip waits before following the mouse off a word.
+    "hover_hide_delay": 0.4,
     # Text direction for OCR: "auto" (vertical when the region is taller than
     # wide), "horizontal" or "vertical". Vertical needs Tesseract's jpn_vert.
     "orientation": "auto",
     # What goes in the card's Sentence field: "sentence" (the one containing
     # the word), "full" (everything captured) or "none".
-    "context": "full",
+    "context": "sentence",
     # Screenshot attached to the card: "off", "region" (the text box / bubble)
     # or "full" (the whole game screen).
-    "screenshot": "region",
+    "screenshot": "full",
     # Also save every captured screenshot to ~/.wordmine/screenshots.
     "save_screenshots": False,
     # Shown in the card's Source field, e.g. the game's or book's title.
@@ -63,6 +81,8 @@ DEFAULTS: dict[str, Any] = {
     # One-shot: drag over a speech bubble / paragraph and OCR it right away
     # without changing the saved region.
     "hotkey_snip": "<ctrl>+<alt>+x",
+    # Save the word currently under the mouse (hover mode).
+    "hotkey_add_hovered": "<ctrl>+<alt>+<enter>",
     # Auto mode: poll the region this often (seconds) and OCR when it changes.
     "auto_interval": 1.0,
     # Watch the clipboard too (for texthookers like Textractor / Agent that

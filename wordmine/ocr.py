@@ -2,7 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from PIL import Image, ImageOps
+
+
+@dataclass
+class WordBox:
+    """A recognised chunk of text and its box in the *original* image's pixels."""
+    text: str
+    left: int
+    top: int
+    width: int
+    height: int
 
 # ISO language -> Tesseract traineddata name
 _TESS_LANG = {
@@ -110,11 +122,12 @@ class TesseractOCR:
         except (TypeError, ValueError):
             return [1.0, 2.0]
 
-    def _read(self, prepared: Image.Image, lang: str, psm: int) -> tuple[float, str]:
-        """One Tesseract pass; returns (mean word confidence, text)."""
+    def _read(self, prepared: Image.Image, lang: str, psm: int, scale: float, border: int) -> tuple[float, str, list[WordBox]]:
+        """One Tesseract pass; returns (mean word confidence, text, word boxes)."""
         data = self._pt.image_to_data(prepared, lang=lang, config=f"--psm {psm}", output_type=self._pt.Output.DICT)
         lines: dict[tuple, list[str]] = {}
         confs: list[float] = []
+        boxes: list[WordBox] = []
         for i, word in enumerate(data["text"]):
             if not word.strip():
                 continue
@@ -123,23 +136,40 @@ class TesseractOCR:
             try:
                 c = float(data["conf"][i])
             except (TypeError, ValueError):
-                continue
+                c = -1.0
             if c >= 0:
                 confs.append(c)
-        text = "\n".join(" ".join(ws) for _, ws in sorted(lines.items()))
-        return (sum(confs) / len(confs) if confs else 0.0), text
+            # Back from the prepared (scaled + padded) image to original pixels.
+            left = (data["left"][i] - border) / scale
+            top = (data["top"][i] - border) / scale
+            boxes.append(WordBox(word, int(round(left)), int(round(top)),
+                                 max(1, int(round(data["width"][i] / scale))), max(1, int(round(data["height"][i] / scale)))))
+        ordered_keys = sorted(lines)
+        text = "\n".join(" ".join(lines[k]) for k in ordered_keys)
+        # Boxes in the same reading order as the text.
+        order = {k: n for n, k in enumerate(ordered_keys)}
+        keyed = []
+        for i, word in enumerate(data["text"]):
+            if word.strip():
+                keyed.append(order[(data["block_num"][i], data["par_num"][i], data["line_num"][i])])
+        boxes = [b for _, b in sorted(zip(keyed, boxes), key=lambda kb: kb[0])]
+        return (sum(confs) / len(confs) if confs else 0.0), text, boxes
 
-    def recognize(self, img: Image.Image, vertical: bool = False) -> str:
+    def recognize_boxes(self, img: Image.Image, vertical: bool = False) -> tuple[str, list[WordBox]]:
+        """Text plus the position of every recognised chunk (for hover lookups)."""
         if vertical and self.vert_lang:
             lang, psm = self.vert_lang, 5  # psm 5 = one block of vertically aligned text
         else:
             lang, psm = self.lang, 6       # psm 6 = one uniform block of text (dialogue box, paragraph)
-        best_conf, best_text = -1.0, ""
+        best = (-1.0, "", [])
         for scale in self._scales():
-            conf, text = self._read(preprocess(img, scale), lang, psm)
-            if conf > best_conf:
-                best_conf, best_text = conf, text
-        return best_text
+            result = self._read(preprocess(img, scale), lang, psm, scale, 20)
+            if result[0] > best[0]:
+                best = result
+        return best[1], best[2]
+
+    def recognize(self, img: Image.Image, vertical: bool = False) -> str:
+        return self.recognize_boxes(img, vertical)[0]
 
 
 class MangaOCR:
@@ -162,6 +192,12 @@ class MangaOCR:
     def recognize(self, img: Image.Image, vertical: bool = False) -> str:
         # The model handles horizontal and vertical text on its own.
         return self._m(img.convert("RGB"))
+
+    def recognize_boxes(self, img: Image.Image, vertical: bool = False) -> tuple[str, list[WordBox]]:
+        # manga-ocr returns text only; one box covering the whole image lets
+        # hover mode still work at bubble level.
+        text = self.recognize(img, vertical)
+        return text, ([WordBox(text, 0, 0, img.width, img.height)] if text.strip() else [])
 
 
 def is_vertical(img: Image.Image, orientation: str) -> bool:

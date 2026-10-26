@@ -36,7 +36,8 @@ def fake_anki():
                 res = state["models"][p["modelName"]]
             elif a == "addNote":
                 n = p["note"]
-                if any(x["fields"]["Word"] == n["fields"]["Word"] for x in state["notes"]):
+                first = next(iter(n["fields"].values()))
+                if any(next(iter(x["fields"].values())) == first and x["modelName"] == n["modelName"] for x in state["notes"]):
                     err = "cannot create note because it is a duplicate"
                 else:
                     for pic in n.get("picture", []):
@@ -69,6 +70,7 @@ def test_add_note_creates_deck_model_and_media(fake_anki):
     assert "WordMine" in state["decks"] and "WordMine" in state["models"]
     fields = state["notes"][0]["fields"]
     assert fields["Sentence"] == "この<b>辛い</b>料理は本当に辛い。"
+    assert state["notes"][0]["modelName"] == "WordMine"
     assert fields["Source"] == "Game"
     assert state["notes"][0]["picture"][0]["fields"] == ["Image"]
     assert len(state["media"]) == 1
@@ -93,21 +95,57 @@ def test_unreachable_is_not_available():
     assert AnkiConnect("http://127.0.0.1:1", "d", "m").available() is False
 
 
-def test_highlight():
+def test_highlight_escapes_html():
     assert highlight("店を開く。", "開く") == "店を<b>開く</b>。"
     assert highlight("abc", "zzz") == "abc"
     assert highlight("abc", "") == "abc"
+    assert highlight("HP < 10 & MP", "MP") == "HP &lt; 10 &amp; <b>MP</b>"
 
 
-def test_store_roundtrip(tmp_path):
+def test_grammar_and_sentence_cards(fake_anki, tmp_path):
+    url, state = fake_anki
+    a = AnkiConnect(url, "WordMine", "WordMine")
+    img = tmp_path / "shot.png"
+    Image.new("RGB", (10, 10)).save(img)
+    a.add_record({"kind": "grammar", "word": "〜ている", "meaning": "ongoing", "sentence": "本を読んでいる。", "notes": "読んでいる",
+                  "reading": "", "source": "VN", "image": str(img)})
+    a.add_record({"kind": "sentence", "word": "本を読んでいる。", "meaning": "I am reading a book.", "notes": "", "source": "VN"})
+    assert set(state["models"]) == {"WordMine Grammar", "WordMine Sentence"}
+    g, s = state["notes"]
+    assert g["modelName"] == "WordMine Grammar" and g["fields"]["Pattern"] == "〜ている"
+    assert g["fields"]["Sentence"] == "本を<b>読んでいる</b>。" and g["picture"][0]["fields"] == ["Image"]
+    assert s["modelName"] == "WordMine Sentence" and s["fields"]["Translation"] == "I am reading a book."
+
+
+def test_store_known_roundtrip(tmp_path):
     s = Store(tmp_path)
     s.mark_known("辛い", "店")
     s.mark_known("辛い")  # no duplicate line
-    s.log("辛い", "からい", "spicy", "この辛い料理", "Game")
-    s.log("店", "みせ", "shop\twith tab", "店を開く。", "")
     assert Store(tmp_path).known == {"辛い", "店"}
     assert (tmp_path / "known_words.txt").read_text(encoding="utf-8").count("辛い") == 1
-    lines = (tmp_path / "mined.tsv").read_text(encoding="utf-8").splitlines()
-    assert lines[0] == "#separator:tab" and lines[1] == "#html:true"
+    s.forget("店")
+    assert Store(tmp_path).known == {"辛い"}
+
+
+def test_word_list_and_exports(tmp_path):
+    s = Store(tmp_path)
+    r1 = s.add("辛い", "からい", "spicy", "この辛い料理", "Game", image="/x/shot.png", lang="ja")
+    r2 = s.add("店", "みせ", "shop\twith tab", "店を開く。", "", lang="ja")
+    g = s.add("〜ている", "", "ongoing", "本を読んでいる。", "", kind="grammar", notes="読んでいる")
+    assert s.has("辛い") and not s.has("辛い", kind="grammar") and s.has("〜ている", kind="grammar")
+    assert s.known >= {"辛い", "店"} and "〜ている" not in s.known
+    s.update(r1["id"], status="learning")
+    s.update(r2["id"], anki=True)
+    assert [w["id"] for w in s.unsent()] == [r1["id"], g["id"]]
+    again = Store(tmp_path)
+    assert [w["word"] for w in again.words] == ["辛い", "店", "〜ている"]
+    assert again.get(r1["id"])["status"] == "learning"
+    n = again.export_tsv(tmp_path / "out.tsv")
+    lines = (tmp_path / "out.tsv").read_text(encoding="utf-8").splitlines()
+    assert n == 3 and lines[0] == "#separator:tab" and lines[1] == "#html:true"
     assert lines[3].startswith("辛い\tからい\tspicy\tこの辛い料理\tGame\t")
-    assert len(lines) == 5
+    assert again.export_csv(tmp_path / "out.csv") == 3
+    assert "word,reading,meaning" in (tmp_path / "out.csv").read_text(encoding="utf-8-sig").splitlines()[0]
+    assert again.export_text([r1]) == "辛い (からい)"
+    again.remove(r2["id"])
+    assert len(Store(tmp_path).words) == 2

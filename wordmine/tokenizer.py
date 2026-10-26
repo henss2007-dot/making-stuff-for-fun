@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Optional
 
 
 @dataclass
@@ -21,6 +22,11 @@ class Token:
     # Different ways the analyser could split the surrounding text, when the
     # word boundary itself was uncertain (e.g. 東京/都 vs 東/京都).
     alt_splits: list[str] = field(default_factory=list)
+    # Where the surface sits: index of the sentence in the text and character
+    # offsets inside that sentence. Used to map words to screen positions.
+    sent_index: int = 0
+    start: int = 0
+    end: int = 0
     extra: dict = field(default_factory=dict)
 
     @property
@@ -129,7 +135,7 @@ def _spans(nodes) -> list[tuple[int, int, object]]:
     return out
 
 
-def tokenize_japanese(text: str) -> list[Token]:
+def tokenize_japanese(text: str, sentences: Optional[list[str]] = None) -> list[Token]:
     """Morphological analysis with context-aware disambiguation.
 
     MeCab scores every way of splitting and reading the whole sentence at
@@ -141,7 +147,7 @@ def tokenize_japanese(text: str) -> list[Token]:
     """
     tagger = _get_tagger()
     out: list[Token] = []
-    for sentence in split_sentences(text, "ja"):
+    for si, sentence in enumerate(sentences if sentences is not None else split_sentences(text, "ja")):
         parses = tagger.nbestToNodeList(sentence, NBEST)
         if not parses:
             continue
@@ -184,6 +190,7 @@ def tokenize_japanese(text: str) -> list[Token]:
                 alt_readings=alt_readings,
                 alt_lemmas=alt_lemmas,
                 alt_splits=alt_splits[:3],
+                sent_index=si, start=start, end=end,
             ))
     return out
 
@@ -191,55 +198,76 @@ def tokenize_japanese(text: str) -> list[Token]:
 _WORD_RE = re.compile(r"[^\W\d_]+(?:['’-][^\W\d_]+)*", re.UNICODE)
 
 
-def tokenize_generic(text: str) -> list[Token]:
+def tokenize_generic(text: str, sentences: Optional[list[str]] = None) -> list[Token]:
     """Whitespace/punctuation split for alphabetic languages.
 
     No lemmatiser, so "ran" and "running" are separate words; the card gets
     the lowercase surface form.
     """
     out: list[Token] = []
-    for sentence in split_sentences(text, "generic"):
+    for si, sentence in enumerate(sentences if sentences is not None else split_sentences(text, "generic")):
         for m in _WORD_RE.finditer(sentence):
             word = m.group(0)
             if len(word) < 2:
                 continue
             lemma = word.lower() if not word.isupper() else word
-            out.append(Token(surface=word, lemma=lemma, sentence=sentence))
+            out.append(Token(surface=word, lemma=lemma, sentence=sentence, sent_index=si, start=m.start(), end=m.end()))
     return out
 
 
-def tokenize_chinese(text: str) -> list[Token]:
+def tokenize_chinese(text: str, sentences: Optional[list[str]] = None) -> list[Token]:
     """Chinese has no spaces; use jieba when installed (pip install jieba)."""
     try:
         import jieba.posseg as pseg
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("Chinese tokenizing needs jieba: pip install jieba") from exc
     out: list[Token] = []
-    for sentence in split_sentences(text, "ja"):  # same CJK punctuation
+    for si, sentence in enumerate(sentences if sentences is not None else split_sentences(text, "ja")):
+        pos = 0
         for w in pseg.cut(sentence):
+            start = sentence.find(w.word, pos)
+            if start < 0:
+                start = pos
+            pos = start + len(w.word)
             if len(w.word.strip()) == 0 or w.flag.startswith(("x", "w", "m", "u", "p", "c")):
                 continue  # punctuation, numbers, particles, prepositions, conjunctions
             if not re.search(r"[\u4e00-\u9fff]", w.word):
                 continue
-            out.append(Token(surface=w.word, lemma=w.word, pos=w.flag, sentence=sentence))
+            out.append(Token(surface=w.word, lemma=w.word, pos=w.flag, sentence=sentence, sent_index=si, start=start, end=pos))
     return out
 
 
-def tokenize(text: str, lang: str) -> list[Token]:
-    text = clean_ocr_text(text, "ja" if lang in ("ja", "zh", "zh-tw") else lang)
-    if not text:
-        return []
-    if lang == "ja":
-        tokens = tokenize_japanese(text)
-    elif lang in ("zh", "zh-tw"):
-        tokens = tokenize_chinese(text)
-    else:
-        tokens = tokenize_generic(text)
-    # Keep first occurrence of each lemma, preserving text order.
+def clean_lang(lang: str) -> str:
+    return "ja" if lang in ("ja", "zh", "zh-tw") else lang
+
+
+def sentences_of(text: str, lang: str) -> list[str]:
+    """Sentences of an already-cleaned text, as tokenize() sees them."""
+    return split_sentences(text, "ja" if clean_lang(lang) == "ja" else "generic")
+
+
+def unique(tokens: list[Token]) -> list[Token]:
+    """First occurrence of each dictionary form, in text order."""
     seen: set[str] = set()
-    unique: list[Token] = []
+    out: list[Token] = []
     for t in tokens:
         if t.lemma not in seen:
             seen.add(t.lemma)
-            unique.append(t)
-    return unique
+            out.append(t)
+    return out
+
+
+def tokenize(text: str, lang: str, dedupe: bool = True) -> list[Token]:
+    """Candidate words of a text. With dedupe=False every occurrence is
+    returned, each carrying its sentence index and character offsets."""
+    text = clean_ocr_text(text, clean_lang(lang))
+    if not text:
+        return []
+    sentences = sentences_of(text, lang)
+    if lang == "ja":
+        tokens = tokenize_japanese(text, sentences)
+    elif lang in ("zh", "zh-tw"):
+        tokens = tokenize_chinese(text, sentences)
+    else:
+        tokens = tokenize_generic(text, sentences)
+    return unique(tokens) if dedupe else tokens

@@ -79,3 +79,18 @@ def test_split_sentences():
 def test_kata_to_hira():
     assert kata_to_hira("タオス") == "たおす"
     assert kata_to_hira("ゲーム") == "げーむ"
+
+
+def test_offsets_and_dedupe_flag():
+    raw = "勇者 は 魔王 を 倒し た 。\n辛い。辛い。"
+    all_tokens = tokenize(raw, "ja", dedupe=False)
+    from wordmine.tokenizer import clean_ocr_text, sentences_of, unique
+    cleaned = clean_ocr_text(raw, "ja")
+    sents = sentences_of(cleaned, "ja")
+    for t in all_tokens:
+        assert sents[t.sent_index][t.start:t.end] == t.surface
+    assert [t.lemma for t in all_tokens] == ["勇者", "魔王", "倒す", "辛い", "辛い"]
+    assert [t.lemma for t in unique(all_tokens)] == ["勇者", "魔王", "倒す", "辛い"]
+    assert [t.lemma for t in tokenize(raw, "ja")] == ["勇者", "魔王", "倒す", "辛い"]
+    for t in tokenize("Nobody dared.  Enter it!", "en", dedupe=False):
+        assert t.sentence[t.start:t.end] == t.surface

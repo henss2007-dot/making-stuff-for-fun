@@ -56,79 +56,9 @@ def cmd_ocr(args, cfg):
 
 
 def cmd_check(_args, cfg):
-    ok = "  OK   "
-    bad = "  FAIL "
-    print(f"Python {sys.version.split()[0]} on {sys.platform}")
-    print(f"Config: {cfgmod.APP_DIR / 'config.json'}  (lang={cfg['lang']}, mode={cfg['mode']}, ocr={cfg['ocr_engine']})")
-
-    try:
-        import pytesseract
-        if cfg["tesseract_cmd"]:
-            pytesseract.pytesseract.tesseract_cmd = cfg["tesseract_cmd"]
-        ver = pytesseract.get_tesseract_version()
-        langs = sorted(pytesseract.get_languages(config=""))
-        print(ok, f"Tesseract {ver}; languages: {', '.join(langs)}")
-        from .ocr import _TESS_LANG
-        need = cfg["tesseract_lang"] or _TESS_LANG.get(cfg["lang"], cfg["lang"])
-        for l in need.split("+"):
-            print(ok if l in langs else bad, f"language data '{l}'" + ("" if l in langs else " missing: install it with the Tesseract installer or copy the .traineddata into tessdata"))
-            if l in ("jpn", "chi_sim", "chi_tra", "kor"):
-                print(ok if l + "_vert" in langs else "  note ", f"'{l}_vert' (vertical text for manga) " + ("installed" if l + "_vert" in langs else "not installed"))
-    except Exception as exc:
-        print(bad, f"Tesseract: {exc}")
-        print("        Windows: https://github.com/UB-Mannheim/tesseract/wiki  (tick the language packs you need)")
-        print("        macOS: brew install tesseract tesseract-lang    Linux: apt install tesseract-ocr tesseract-ocr-jpn")
-
-    try:
-        import manga_ocr  # noqa: F401
-        print(ok, "manga-ocr installed (set ocr_engine to manga_ocr for Japanese manga/games)")
-    except ImportError:
-        print("  note ", "manga-ocr not installed (optional, best for Japanese: pip install manga-ocr)")
-
-    if cfg["lang"] == "ja":
-        try:
-            from .tokenizer import tagger_dictionary, tokenize
-            tokenize("テストです。", "ja")
-            print(ok, f"Japanese analyser ready (dictionary: {tagger_dictionary()})")
-        except Exception as exc:
-            print(bad, f"Japanese analyser: {exc}")
-    elif cfg["lang"] in ("zh", "zh-tw"):
-        try:
-            import jieba  # noqa: F401
-            print(ok, "jieba installed for Chinese word splitting")
-        except ImportError:
-            print(bad, "Chinese word splitting needs jieba: pip install jieba")
-
-    try:
-        from .capture import screen
-        with screen() as sct:
-            mons = sct.monitors[1:]
-        print(ok, f"Screen capture: {len(mons)} monitor(s) " + ", ".join(f"{m['width']}x{m['height']}" for m in mons))
-    except Exception as exc:
-        print(bad, f"Screen capture: {exc}")
-
-    try:
-        from pynput import keyboard  # noqa: F401
-        print(ok, f"Global hotkeys: capture {cfg['hotkey_capture']}, select region {cfg['hotkey_select_region']}, snip {cfg['hotkey_snip']}, auto {cfg['hotkey_toggle_auto']}")
-    except Exception as exc:
-        print(bad, f"Global hotkeys: {exc}")
-
-    from .anki import AnkiConnect
-    anki = AnkiConnect(cfg["anki_connect_url"], cfg["deck"], cfg["note_type"])
-    if anki.available():
-        print(ok, f"AnkiConnect reachable at {cfg['anki_connect_url']} (deck '{cfg['deck']}')")
-    else:
-        print(bad, "AnkiConnect not reachable. Open Anki and install the add-on (Tools > Add-ons > Get Add-ons > code 2055492159).")
-        print("        Cards are saved to", cfgmod.APP_DIR / "mined.tsv", "meanwhile; Anki can import that file.")
-
-    if cfg["ai_check"] != "off":
-        try:
-            import anthropic  # noqa: F401
-            print(ok, f"AI context check on ({cfg['ai_check']}, model {cfg['ai_model']})")
-        except ImportError:
-            print(bad, "AI context check is on but the anthropic package is missing: pip install anthropic")
-    else:
-        print("  note ", "AI context check off (set ai_check in config.json or the window to turn it on)")
+    from .diagnostics import run_checks
+    for status, msg in run_checks(cfg):
+        print(f"  {status:5s} {msg}")
 
 
 def main(argv=None):
